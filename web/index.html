@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nib</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Nib</div>
+  <div class="conn">
+    <select id="port" title="Schnittstelle"></select>
+    <button id="btnPorts" class="icon" title="Schnittstellen neu suchen">⟳</button>
+    <select id="baud" title="Baudrate">
+      <option>115200</option><option>250000</option><option>57600</option><option>9600</option>
+    </select>
+    <button id="btnConnect" class="primary">Verbinden</button>
+  </div>
+  <div class="status">
+    <span id="statePill" class="pill off">Getrennt</span>
+    <span class="pos">X <b id="posX">–</b> Y <b id="posY">–</b> Z <b id="posZ">–</b></span>
+  </div>
+  <button id="btnEstop" class="danger" title="Sofort anhalten – Plot wird abgebrochen, Nullpunkt bleibt erhalten">■ STOPP</button>
+</header>
+
+<main class="layout">
+  <!-- linke Spalte: Steuerung -->
+  <aside class="panel left">
+    <section>
+      <h2>Steuerung</h2>
+      <div class="jog">
+        <button data-jog="-1,-1">↖</button><button data-jog="0,-1">↑</button><button data-jog="1,-1">↗</button>
+        <button data-jog="-1,0">←</button><button id="btnGoZero" title="Zum Nullpunkt fahren">⌂</button><button data-jog="1,0">→</button>
+        <button data-jog="-1,1">↙</button><button data-jog="0,1">↓</button><button data-jog="1,1">↘</button>
+      </div>
+      <div class="seg" id="jogStep">
+        <button data-step="0.1">0,1</button><button data-step="1">1</button><button data-step="10" class="on">10</button><button data-step="50">50</button><input type="number" id="jogCustom" value="10" min="0.01" step="any" title="Schrittweite frei eingeben"><span class="unit">mm</span>
+      </div>
+      <div class="row2">
+        <button id="btnPenUp">Stift hoch</button>
+        <button id="btnPenDown">Stift runter</button>
+      </div>
+      <div class="row2">
+        <button id="btnZero" class="accent" title="Aktuelle Stiftposition wird zur oberen linken Blattecke (0/0)">Nullpunkt hier</button>
+        <button id="btnUnlock" title="Alarm aufheben">Entsperren</button>
+      </div>
+      <button id="btnMachineZero" class="wide" title="Stift hoch und zurück zur Position, an der der Plotter eingeschaltet wurde. Dein Nullpunkt bleibt erhalten.">Zum Maschinen-Nullpunkt</button>
+      <div class="row2">
+        <button data-zjog="-0.5" title="Z-Achse 0,5 mm nach oben">Z −0,5</button>
+        <button data-zjog="0.5" title="Z-Achse 0,5 mm nach unten">Z +0,5</button>
+      </div>
+      <p class="hint">Pfeiltasten verfahren, Bild↑/Bild↓ = Stift hoch/runter, Leertaste = Plot pausieren.</p>
+    </section>
+
+    <section>
+      <h2>Geschwindigkeit &amp; Stift</h2>
+      <label>Zeichnen <span><input type="number" data-set="machine.feed_draw" step="100" min="100"> mm/min</span></label>
+      <label>Leerfahrt <span><input type="number" data-set="machine.feed_travel" step="100" min="100"> mm/min</span></label>
+      <label>Verfahren (Jog) <span><input type="number" data-set="machine.jog_feed" step="100" min="100"> mm/min</span></label>
+      <label>Stift oben (Z) <span><input type="number" data-set="machine.z_up" step="0.1"> mm</span></label>
+      <label>Stift unten (Z) <span><input type="number" data-set="machine.z_down" step="0.1"> mm</span></label>
+      <label>Z-Geschwindigkeit <span><input type="number" data-set="machine.z_feed" step="100" min="100"> mm/min</span></label>
+      <label>Pause nach Absetzen <span><input type="number" data-set="machine.pen_down_delay" step="0.05" min="0"> s</span></label>
+      <label>Pause nach Anheben <span><input type="number" data-set="machine.pen_up_delay" step="0.05" min="0"> s</span></label>
+      <p class="hint" id="speedHint"></p>
+    </section>
+
+    <section>
+      <h2>Achsen</h2>
+      <label class="chk"><input type="checkbox" data-set="machine.invert_x"> X umkehren</label>
+      <label class="chk"><input type="checkbox" data-set="machine.invert_y"> Y umkehren</label>
+      <label class="chk"><input type="checkbox" data-set="machine.swap_xy"> X/Y tauschen</label>
+      <h2 style="margin-top:12px">Arbeitsbereich</h2>
+      <label class="chk"><input type="checkbox" data-set="machine.limits_on"> Grenzen einhalten</label>
+      <label>Max. X <span><input type="number" data-set="machine.max_x" step="1" min="1"> mm</span></label>
+      <label>Max. Y <span><input type="number" data-set="machine.max_y" step="1" min="1"> mm</span></label>
+      <div class="measure">
+        <button id="btnAreaOpen" title="Grenzen vorübergehend auf 420 × 297 mm (Firmware) öffnen, um den echten Weg auszumessen">Zum Ausmessen öffnen</button>
+        <button id="btnAreaX" title="Aktuelle X-Position minus 1 mm als Max. X übernehmen">Pos. → Max. X</button>
+        <button id="btnAreaY" title="Aktuelle Y-Position minus 1 mm als Max. Y übernehmen">Pos. → Max. Y</button>
+      </div>
+      <p class="hint"><b>Ausmessen:</b> In der Ecke einschalten, „Zum Ausmessen öffnen“, mit 1-mm-Schritten bis kurz vor den Anschlag joggen, dann „Pos. → Max. Y“ (bzw. X). Es wird 1 mm Reserve abgezogen.</p>
+      <p class="hint">Gilt ab der Einschaltposition (Ecke), rot gestrichelt in der Vorschau. Verfahren stoppt an der Grenze, Plots und Rahmen außerhalb werden nicht gestartet. Die Firmware erlaubt 420 × 297 mm, der echte Weg kann kürzer sein – hier den selbst gemessenen Wert (mit ein paar mm Reserve) eintragen. Er wird nur verkleinert, nie automatisch vergrößert.</p>
+      <p class="hint">Mit „Rahmen abfahren“ prüfen: Der Stift muss die Kontur der Vorschau nachfahren.</p>
+    </section>
+  </aside>
+
+  <!-- Mitte: Vorschau -->
+  <section class="stage">
+    <div class="stagebar">
+      <select id="paper">
+        <option value="420x297">A3 quer</option><option value="297x420">A3 hoch</option>
+        <option value="297x210">A4 quer</option><option value="210x297">A4 hoch</option>
+        <option value="custom">Eigenes Format…</option>
+      </select>
+      <span id="customPaper" hidden>
+        <input type="number" id="paperW" step="1"> × <input type="number" id="paperH" step="1"> mm
+      </span>
+      <label class="chk"><input type="checkbox" id="showTravel"> Leerfahrten</label>
+      <span class="spacer"></span>
+      <button id="btnFit" class="icon" title="Ansicht einpassen">⤢</button>
+    </div>
+    <div id="canvasWrap">
+      <canvas id="cv"></canvas>
+      <div id="drop" class="drop">
+        <div>SVG hier hineinziehen<br><small>oder rechts „Datei öffnen“</small></div>
+      </div>
+      <div id="busy" class="busy" hidden>Datei wird verarbeitet…</div>
+    </div>
+    <div class="console">
+      <div id="log"></div>
+      <form id="cmdForm"><input id="cmd" placeholder="G-Code oder $-Befehl senden (z. B. $$)" autocomplete="off"><button>Senden</button></form>
+    </div>
+  </section>
+
+  <!-- rechte Spalte: Datei & Plot -->
+  <aside class="panel right">
+    <section>
+      <h2>Datei</h2>
+      <div class="row2">
+        <button id="btnOpen" class="primary">Datei öffnen</button>
+        <input type="file" id="file" accept=".svg,image/svg+xml" hidden>
+      </div>
+      <div id="docInfo" class="muted">Keine Datei geladen</div>
+      <div id="warnings"></div>
+    </section>
+
+    <section>
+      <h2>Platzierung</h2>
+      <div class="grid2">
+        <label>X <span><input type="number" id="plX" step="1"> mm</span></label>
+        <label>Y <span><input type="number" id="plY" step="1"> mm</span></label>
+        <label>Breite <span><input type="number" id="plW" step="1"> mm</span></label>
+        <label>Höhe <span><input type="number" id="plH" step="1"> mm</span></label>
+        <label>Maßstab <span><input type="number" id="plS" step="1"> %</span></label>
+        <label>Drehung <span><select id="plR"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></span></label>
+      </div>
+      <div class="row3">
+        <button id="btnCenter">Zentrieren</button>
+        <button id="btnFitPaper">Einpassen</button>
+        <button id="btnOrig">100 %</button>
+      </div>
+      <button id="btnFrame" class="wide" title="Fährt die Außenkontur mit angehobenem Stift ab">Rahmen abfahren</button>
+      <p class="hint">Design in der Vorschau mit der Maus verschieben.</p>
+    </section>
+
+    <section>
+      <h2>Optimierung</h2>
+      <label>Ebenen bilden nach <span><select data-opt="group">
+        <option value="auto">Automatisch</option><option value="color">Farbe</option>
+        <option value="layer">Ebene/Gruppe</option><option value="none">Alles zusammen</option></select></span></label>
+      <label class="chk"><input type="checkbox" data-opt="sort"> Reihenfolge optimieren</label>
+      <label class="chk"><input type="checkbox" data-opt="merge"> Anschließende Linien verbinden</label>
+      <label class="chk"><input type="checkbox" data-opt="dedupe"> Doppelte Linien entfernen</label>
+      <label>Verbinden bis <span><input type="number" data-opt="merge_tol" step="0.05" min="0"> mm</span></label>
+      <label>Vereinfachen <span><input type="number" data-opt="simplify" step="0.01" min="0"> mm</span></label>
+      <label>Kürzer weglassen <span><input type="number" data-opt="min_len" step="0.1" min="0"> mm</span></label>
+      <button id="btnProcess" class="wide">Neu berechnen</button>
+    </section>
+
+    <section>
+      <h2>Ebenen <small id="totalTime"></small></h2>
+      <div id="layers" class="layers muted">–</div>
+      <label class="chk"><input type="checkbox" data-set="job.pen_change"> Zwischen Ebenen pausieren (Stiftwechsel)</label>
+      <label class="chk"><input type="checkbox" data-set="job.go_home"> Am Ende zum Nullpunkt</label>
+    </section>
+
+    <section class="plot">
+      <h2>Plot</h2>
+      <div id="resumeBox" class="resume" hidden></div>
+      <div id="penChange" class="penchange" hidden></div>
+      <div class="progress"><div id="progBar"></div></div>
+      <div id="progText" class="muted">Bereit</div>
+      <div class="row3">
+        <button id="btnStart" class="primary">▶ Start</button>
+        <button id="btnPause">❚❚ Pause</button>
+        <button id="btnStop" class="danger">■ Stopp</button>
+      </div>
+      <label class="chk" title="Pfade in umgekehrter Reihenfolge plotten – z. B. wenn die Farbe ausgegangen ist und man das Ende zuerst nachholen will">
+        <input type="checkbox" data-set="job.reverse" id="chkReverse"> Rückwärts plotten (vom Ende zum Anfang)</label>
+      <div class="startbox">
+        <div class="startinfo"><b>Startpunkt:</b> <span id="startInfo">von Anfang</span></div>
+        <div class="row2">
+          <button id="btnPick" title="In die Vorschau klicken, um den Pfad zu wählen, bei dem der Plot beginnen soll">⌖ In Vorschau wählen</button>
+          <button id="btnStartReset">Zurücksetzen</button>
+        </div>
+        <div class="grid2">
+          <label>Ebene <span><select id="startLayer"></select></span></label>
+          <label>Pfad Nr. <span><input type="number" id="startPath" min="1" value="1"></span></label>
+        </div>
+      </div>
+    </section>
+  </aside>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

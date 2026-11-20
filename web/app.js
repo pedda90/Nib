@@ -1,0 +1,790 @@
+"use strict";
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+
+let S = null;            // Einstellungen (Server)
+let doc = null;          // geladenes Dokument
+let order = [];          // [{id, on}]
+let st = null;           // letzter Maschinenstatus
+let job = null;          // letzter Job-Status
+let logSeq = 0;
+let resumeInfo = null;
+let startSel = null;     // {id, path} – Startpunkt (Original-Pfadindex)
+let pickMode = false;
+let jogStep = 10;
+const view = { s: 1, ox: 0, oy: 0 };
+let serverArea = null;   // erlaubter Bereich vom Server (inkl. Firmware-Grenzen)
+const area = () => serverArea || [0, 0, S.machine.max_x, S.machine.max_y];
+
+// ------------------------------------------------------------------ Helfer
+async function api(path, body) {
+  try {
+    const r = await fetch(path, body === undefined ? {} : {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (j && j.error) logLocal("err", j.error);
+    return j;
+  } catch (e) {
+    logLocal("err", "Server nicht erreichbar – läuft Nib noch?");
+    return { error: String(e) };
+  }
+}
+const getPath = (o, p) => p.split(".").reduce((a, k) => (a ? a[k] : undefined), o);
+function setPath(o, p, v) {
+  const ks = p.split("."); let a = o;
+  ks.slice(0, -1).forEach((k) => (a = a[k] = a[k] || {}));
+  a[ks[ks.length - 1]] = v;
+}
+function nested(p, v) { const o = {}; setPath(o, p, v); return o; }
+const fmtNum = (v, d = 0) => Number(v).toLocaleString("de-AT", { maximumFractionDigits: d, minimumFractionDigits: d });
+function fmtTime(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+const jobActive = () => job && ["läuft", "pausiert", "stiftwechsel"].includes(job.state);
+const connected = () => st && st.connected;
+
+let saveTimer = null;
+function saveSettings(partial) {
+  clearTimeout(saveTimer);
+  pendingSave = deepMerge(pendingSave, partial);
+  saveTimer = setTimeout(() => { api("/api/settings", pendingSave); pendingSave = {}; }, 300);
+}
+let pendingSave = {};
+const stable = (o) => JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k]]));
+const saveTimer_active = () => Object.keys(pendingSave).length > 0;
+let lastVmax = "";
+function applySpeedLimits(v) {
+  const key = JSON.stringify(v || null);
+  if (key === lastVmax) return;
+  lastVmax = key;
+  const [vxy, vz] = v || [null, null];
+  for (const k of ["feed_draw", "feed_travel", "jog_feed", "z_feed"]) {
+    const el = $(`[data-set="machine.${k}"]`);
+    const lim = k === "z_feed" ? vz : vxy;
+    if (lim) { el.max = lim; el.title = `max. ${lim} mm/min (Plotter-Firmware)`; }
+    else { el.removeAttribute("max"); el.title = ""; }
+  }
+  $("#speedHint").textContent = vxy ? `Maximum laut Plotter: X/Y ${fmtNum(vxy)} mm/min, Z ${fmtNum(vz)} mm/min` : "";
+}
+function deepMerge(a, b) {
+  const o = { ...a };
+  for (const k in b) o[k] = (b[k] && typeof b[k] === "object" && !Array.isArray(b[k])) ? deepMerge(o[k] || {}, b[k]) : b[k];
+  return o;
+}
+
+// ------------------------------------------------------------ Platzierung
+// identisch zu gcode.py make_placer()
+function placedSize() {
+  const b = doc.bbox, p = S.place;
+  let w = b[2] - b[0], h = b[3] - b[1];
+  if (((p.rotate | 0) % 180) === 90) [w, h] = [h, w];
+  return [w * p.scale, h * p.scale];
+}
+function makePlacer() {
+  const [minx, miny, maxx, maxy] = doc.bbox;
+  const w = maxx - minx, h = maxy - miny;
+  const { x: ox, y: oy, scale: s } = S.place;
+  const r = ((S.place.rotate | 0) % 360 + 360) % 360;
+  return (x, y) => {
+    let u = x - minx, v = y - miny;
+    if (r === 90) [u, v] = [h - v, u];
+    else if (r === 180) [u, v] = [w - u, h - v];
+    else if (r === 270) [u, v] = [v, w - u];
+    return [ox + u * s, oy + v * s];
+  };
+}
+function machineToPaper(x, y) {
+  const m = S.machine;
+  if (m.invert_x) x = -x;
+  if (m.invert_y) y = -y;
+  if (m.swap_xy) [x, y] = [y, x];
+  return [x, y];
+}
+
+// ---------------------------------------------------------------- Zeit
+function layerSeconds(l) {
+  const m = S.machine, s = S.place.scale;
+  const fd = Math.max(m.feed_draw, 1) / 60, ft = Math.max(m.feed_travel, 1) / 60, zf = Math.max(m.z_feed, 1) / 60;
+  const zt = Math.abs(m.z_down - m.z_up) / zf * 2;
+  const delays = (+m.pen_up_delay || 0) + (+m.pen_down_delay || 0);
+  return (l.draw_len * s / fd + l.travel_len * s / ft + l.lifts * (zt + delays + 0.05)) * 1.15;
+}
+
+// --------------------------------------------------------------- Canvas
+const cv = $("#cv"), ctx = cv.getContext("2d");
+let drawQueued = false;
+function scheduleDraw() { if (!drawQueued) { drawQueued = true; requestAnimationFrame(draw); } }
+function resizeCanvas() {
+  const r = cv.getBoundingClientRect(), d = devicePixelRatio || 1;
+  cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d);
+  scheduleDraw();
+}
+function fitView() {
+  const r = cv.getBoundingClientRect();
+  const pw = S.paper.w, ph = S.paper.h, pad = 30;
+  view.s = Math.min((r.width - 2 * pad) / pw, (r.height - 2 * pad) / ph);
+  view.ox = (r.width - pw * view.s) / 2; view.oy = (r.height - ph * view.s) / 2;
+  scheduleDraw();
+}
+const toScreen = (x, y) => [x * view.s + view.ox, y * view.s + view.oy];
+const toPaper = (sx, sy) => [(sx - view.ox) / view.s, (sy - view.oy) / view.s];
+
+const isReverse = () => !!(S && S.job && S.job.reverse);
+const enabledIds = () => order.filter((o) => o.on).map((o) => o.id);
+
+/* Was ist schon auf dem Papier? Liefert eine Funktion idx -> true/false (oder null = keine Anzeige).
+   Während/nach einem Plot: Fortschritt des Plots. Sonst: gewählter Startpunkt
+   (alles, was davor liegt, gilt als bereits geplottet). */
+function doneFn(layerId) {
+  const showJob = job && job.layer_ids && (jobActive() || (["abgebrochen", "fertig"].includes(job.state) && !startSel));
+  if (showJob) {
+    const i = job.layer_ids.indexOf(layerId);
+    if (i < 0) return null;
+    if (job.state === "fertig" || i < job.layer) return () => true;
+    if (i > job.layer) return () => false;
+    return job.reverse ? (idx) => idx > job.path : (idx) => idx < job.path;
+  }
+  if (startSel) {
+    const ids = enabledIds(), pos = ids.indexOf(startSel.id), i = ids.indexOf(layerId);
+    if (pos < 0 || i < 0) return null;
+    if (i < pos) return () => true;
+    if (i > pos) return () => false;
+    return isReverse() ? (idx) => idx > startSel.path : (idx) => idx < startSel.path;
+  }
+  return null;
+}
+
+function draw() {
+  drawQueued = false;
+  if (!S) return;
+  const d = devicePixelRatio || 1;
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  const W = cv.width / d, H = cv.height / d;
+  ctx.clearRect(0, 0, W, H);
+
+  // Blatt
+  const [px, py] = toScreen(0, 0);
+  const pw = S.paper.w * view.s, ph = S.paper.h * view.s;
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 18;
+  ctx.fillStyle = "#fbfaf7"; ctx.fillRect(px, py, pw, ph);
+  ctx.restore();
+  // 10-mm-Raster
+  ctx.strokeStyle = "rgba(0,0,0,.045)"; ctx.lineWidth = 1; ctx.beginPath();
+  for (let x = 10; x < S.paper.w; x += 10) { const [sx] = toScreen(x, 0); ctx.moveTo(Math.round(sx) + .5, py); ctx.lineTo(Math.round(sx) + .5, py + ph); }
+  for (let y = 10; y < S.paper.h; y += 10) { const [, sy] = toScreen(0, y); ctx.moveTo(px, Math.round(sy) + .5); ctx.lineTo(px + pw, Math.round(sy) + .5); }
+  ctx.stroke();
+
+  if (doc) {
+    const place = makePlacer();
+    const lw = Math.max(0.6, 0.3 * view.s);
+    const showTravel = $("#showTravel").checked;
+    let last = null;
+    const travel = new Path2D();
+    for (const o of order) {
+      if (!o.on) continue;
+      const l = doc.layers.find((x) => x.id === o.id);
+      if (!l) continue;
+      const done = doneFn(l.id);
+      const pDone = new Path2D(), pTodo = new Path2D();
+      l.paths.forEach((p, idx) => {
+        const target = (done === null || done(idx)) ? pDone : pTodo;
+        let [x, y] = toScreen(...place(p[0], p[1]));
+        if (showTravel && last) { travel.moveTo(last[0], last[1]); travel.lineTo(x, y); }
+        target.moveTo(x, y);
+        for (let i = 2; i < p.length; i += 2) {
+          [x, y] = toScreen(...place(p[i], p[i + 1]));
+          target.lineTo(x, y);
+        }
+        last = [x, y];
+      });
+      ctx.lineWidth = lw; ctx.lineCap = "round"; ctx.lineJoin = "round";
+      ctx.strokeStyle = l.color; ctx.globalAlpha = 0.9; ctx.stroke(pDone);
+      ctx.globalAlpha = done === null ? 0.9 : 0.22; ctx.stroke(pTodo);
+      ctx.globalAlpha = 1;
+    }
+    drawMarker(place);
+    if (showTravel) {
+      ctx.strokeStyle = "rgba(229,83,75,.55)"; ctx.lineWidth = 0.7; ctx.setLineDash([3, 3]);
+      ctx.stroke(travel); ctx.setLineDash([]);
+    }
+    // Rahmen des Designs
+    const [w, h] = placedSize();
+    const [bx, by] = toScreen(S.place.x, S.place.y);
+    ctx.strokeStyle = "rgba(47,125,224,.8)"; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+    ctx.strokeRect(bx, by, w * view.s, h * view.s); ctx.setLineDash([]);
+    const out = ([x0, y0, x1, y1]) => S.place.x < x0 - 0.01 || S.place.y < y0 - 0.01 || S.place.x + w > x1 + 0.01 || S.place.y + h > y1 + 0.01;
+    const msg = S.machine.limits_on && out(area()) ? "Außerhalb des erlaubten Bereichs – Plot wird nicht gestartet"
+      : out([0, 0, S.paper.w, S.paper.h]) ? "Design ragt über das Blatt hinaus" : "";
+    if (msg) { ctx.fillStyle = "#e5534b"; ctx.font = "12px Segoe UI"; ctx.fillText(msg, bx, by - 6); }
+  }
+
+  // Arbeitsbereich
+  if (S.machine.limits_on) {
+    const [x0, y0, x1, y1] = area();
+    const [ax, ay] = toScreen(x0, y0);
+    ctx.strokeStyle = "rgba(229,83,75,.7)"; ctx.lineWidth = 1; ctx.setLineDash([2, 4]);
+    ctx.strokeRect(ax, ay, (x1 - x0) * view.s, (y1 - y0) * view.s); ctx.setLineDash([]);
+  }
+
+  // Nullpunkt
+  ctx.strokeStyle = "#e5534b"; ctx.lineWidth = 1.5; ctx.beginPath();
+  ctx.moveTo(px - 8, py); ctx.lineTo(px + 14, py); ctx.moveTo(px, py - 8); ctx.lineTo(px, py + 14); ctx.stroke();
+
+  // Stiftposition
+  if (connected()) {
+    const [x, y] = machineToPaper(st.wpos[0], st.wpos[1]);
+    const [sx, sy] = toScreen(x, y);
+    const down = Math.abs(st.wpos[2] - S.machine.z_down) < Math.abs(st.wpos[2] - S.machine.z_up);
+    ctx.beginPath(); ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+    ctx.fillStyle = down ? "rgba(229,83,75,.9)" : "rgba(47,125,224,.25)"; ctx.fill();
+    ctx.strokeStyle = down ? "#e5534b" : "#2f7de0"; ctx.lineWidth = 2; ctx.stroke();
+  }
+}
+
+// Startpunkt (bzw. Fortsetzungs-Punkt) markieren
+function markerPoint() {
+  if (jobActive()) return null;
+  const sel = startSel;
+  if (!sel) return null;
+  const l = doc.layers.find((x) => x.id === sel.id);
+  const p = l && l.paths[sel.path];
+  if (!p) return null;
+  return { l, p, rev: isReverse() };
+}
+function drawMarker(place) {
+  const m = markerPoint();
+  if (!m) return;
+  const { l, p, rev } = m;
+  // gewählten Pfad dick hervorheben
+  ctx.beginPath();
+  let [x, y] = toScreen(...place(p[0], p[1])); ctx.moveTo(x, y);
+  for (let i = 2; i < p.length; i += 2) { [x, y] = toScreen(...place(p[i], p[i + 1])); ctx.lineTo(x, y); }
+  ctx.strokeStyle = "#e5534b"; ctx.lineWidth = Math.max(2.5, 0.8 * view.s); ctx.globalAlpha = 1; ctx.stroke();
+  // Startpunkt des Stifts (vorwärts: Pfadanfang, rückwärts: Pfadende)
+  const k = rev ? p.length - 2 : 0;
+  const [sx, sy] = toScreen(...place(p[k], p[k + 1]));
+  ctx.beginPath(); ctx.arc(sx, sy, 9, 0, Math.PI * 2);
+  ctx.strokeStyle = "#e5534b"; ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2); ctx.fillStyle = "#e5534b"; ctx.fill();
+  ctx.font = "bold 12px Segoe UI"; ctx.fillStyle = "#e5534b";
+  ctx.fillText(`Start: ${l.name.split("  ")[0]} · Pfad ${fmtNum(startSel.path + 1)}${rev ? " (rückwärts)" : ""}`, sx + 13, sy - 10);
+}
+
+// Pfad unter dem Mauszeiger suchen (nur eingeschaltete Ebenen)
+function pickPath(sx, sy) {
+  const place = makePlacer();
+  let best = null, bd = Infinity;
+  for (const o of order) {
+    if (!o.on) continue;
+    const l = doc.layers.find((x) => x.id === o.id);
+    l.paths.forEach((p, idx) => {
+      for (let i = 0; i < p.length; i += 2) {
+        const [x, y] = toScreen(...place(p[i], p[i + 1]));
+        const d = (x - sx) ** 2 + (y - sy) ** 2;
+        if (d < bd) { bd = d; best = { id: l.id, path: idx }; }
+      }
+    });
+  }
+  return bd <= 30 * 30 ? best : null;
+}
+function setStartSel(sel) {
+  startSel = sel;
+  renderStartInfo(); scheduleDraw();
+}
+function renderStartInfo() {
+  if (startSel && !enabledIds().includes(startSel.id)) startSel = null;
+  const ids = enabledIds();
+  const sel = $("#startLayer");
+  if (startSel && doc) {
+    const l = doc.layers.find((x) => x.id === startSel.id);
+    $("#startInfo").textContent = `Ebene ${ids.indexOf(startSel.id) + 1} „${l.name.split("  ")[0]}“, Pfad ${fmtNum(startSel.path + 1)} von ${fmtNum(l.count)}` + (isReverse() ? " – rückwärts" : "");
+    sel.value = String(ids.indexOf(startSel.id));
+    $("#startPath").value = startSel.path + 1;
+  } else {
+    $("#startInfo").textContent = isReverse() ? "vom Ende (letzter Pfad der ersten Ebene)" : "von Anfang";
+    $("#startPath").value = "";
+  }
+}
+$("#btnPick").onclick = () => {
+  pickMode = !pickMode;
+  $("#btnPick").classList.toggle("on", pickMode);
+  cv.classList.toggle("picking", pickMode);
+  if (pickMode) logLocal("info", "Klicke in der Vorschau auf den Pfad, bei dem der Plot beginnen soll.");
+};
+$("#btnStartReset").onclick = () => setStartSel(null);
+$("#startLayer").onchange = () => {
+  const id = enabledIds()[+$("#startLayer").value];
+  if (!id) return;
+  const l = doc.layers.find((x) => x.id === id);
+  setStartSel({ id, path: isReverse() ? l.count - 1 : 0 });
+};
+$("#startPath").onchange = () => {
+  const ids = enabledIds(), id = ids[+$("#startLayer").value] || ids[0];
+  if (!id) return;
+  const l = doc.layers.find((x) => x.id === id);
+  const n = Math.round(+$("#startPath").value);
+  if (!(n >= 1)) { setStartSel(null); return; }
+  setStartSel({ id, path: Math.min(n, l.count) - 1 });
+};
+
+// Maus: Design verschieben / Ansicht verschieben / Zoom
+let drag = null;
+function overDesign(sx, sy) {
+  if (!doc || jobActive()) return false;
+  const [x, y] = toPaper(sx, sy), [w, h] = placedSize();
+  return x >= S.place.x && x <= S.place.x + w && y >= S.place.y && y <= S.place.y + h;
+}
+cv.addEventListener("mousedown", (e) => {
+  const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
+  if (pickMode && e.button === 0 && doc) {
+    const hit = pickPath(sx, sy);
+    if (hit) {
+      setStartSel(hit);
+      pickMode = false; $("#btnPick").classList.remove("on"); cv.classList.remove("picking");
+    } else logLocal("warn", "Kein Pfad in der Nähe – näher an eine Linie klicken.");
+    return;
+  }
+  if (e.button === 0 && overDesign(sx, sy)) drag = { mode: "design", sx, sy, x0: S.place.x, y0: S.place.y };
+  else drag = { mode: "pan", sx, sy, ox: view.ox, oy: view.oy };
+  cv.classList.add("dragging");
+});
+window.addEventListener("mousemove", (e) => {
+  const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
+  if (!drag) { cv.classList.toggle("over-design", overDesign(sx, sy)); return; }
+  if (drag.mode === "pan") { view.ox = drag.ox + sx - drag.sx; view.oy = drag.oy + sy - drag.sy; }
+  else {
+    let nx = drag.x0 + (sx - drag.sx) / view.s, ny = drag.y0 + (sy - drag.sy) / view.s;
+    if (!e.altKey) { nx = Math.round(nx * 2) / 2; ny = Math.round(ny * 2) / 2; }
+    S.place.x = nx; S.place.y = ny; updatePlaceInputs();
+  }
+  scheduleDraw();
+});
+window.addEventListener("mouseup", () => {
+  if (drag && drag.mode === "design") saveSettings({ place: S.place });
+  drag = null; cv.classList.remove("dragging");
+});
+cv.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
+  const f = Math.exp(-e.deltaY * 0.0015);
+  const [x, y] = toPaper(sx, sy);
+  view.s = Math.min(200, Math.max(0.2, view.s * f));
+  view.ox = sx - x * view.s; view.oy = sy - y * view.s;
+  scheduleDraw();
+}, { passive: false });
+new ResizeObserver(resizeCanvas).observe($("#canvasWrap"));
+$("#btnFit").onclick = fitView;
+$("#showTravel").onchange = scheduleDraw;
+
+// ----------------------------------------------------------- Einstellungen
+function bindSettings() {
+  $$("[data-set]").forEach((el) => {
+    const p = el.dataset.set, v = getPath(S, p);
+    if (el.type === "checkbox") el.checked = !!v; else el.value = v;
+    el.onchange = () => {
+      const val = el.type === "checkbox" ? el.checked : parseFloat(el.value);
+      if (el.type !== "checkbox" && !isFinite(val)) return;
+      setPath(S, p, val); saveSettings(nested(p, val));
+      renderLayers(); scheduleDraw();
+    };
+  });
+  $$("[data-opt]").forEach((el) => {
+    const k = el.dataset.opt, v = S.optimize[k];
+    if (el.type === "checkbox") el.checked = !!v; else el.value = v;
+    el.onchange = () => {
+      S.optimize[k] = el.type === "checkbox" ? el.checked : (el.tagName === "SELECT" ? el.value : parseFloat(el.value));
+      $("#btnProcess").classList.add("primary");
+    };
+  });
+  // Papier
+  const key = `${S.paper.w}x${S.paper.h}`;
+  const sel = $("#paper");
+  sel.value = [...sel.options].some((o) => o.value === key) ? key : "custom";
+  $("#customPaper").hidden = sel.value !== "custom";
+  $("#paperW").value = S.paper.w; $("#paperH").value = S.paper.h;
+  $("#baud").value = String(S.connection.baud);
+}
+$("#paper").onchange = () => {
+  const v = $("#paper").value;
+  $("#customPaper").hidden = v !== "custom";
+  if (v !== "custom") {
+    const [w, h] = v.split("x").map(Number);
+    S.paper = { name: $("#paper").selectedOptions[0].text, w, h };
+    $("#paperW").value = w; $("#paperH").value = h;
+    saveSettings({ paper: S.paper }); fitView();
+  }
+};
+["#paperW", "#paperH"].forEach((id) => $(id).onchange = () => {
+  S.paper = { name: "Eigenes", w: +$("#paperW").value || 100, h: +$("#paperH").value || 100 };
+  saveSettings({ paper: S.paper }); fitView();
+});
+
+// --------------------------------------------------------------- Platzierung
+function updatePlaceInputs() {
+  const p = S.place;
+  $("#plX").value = +p.x.toFixed(1); $("#plY").value = +p.y.toFixed(1);
+  $("#plS").value = +(p.scale * 100).toFixed(2); $("#plR").value = String(p.rotate | 0);
+  if (doc) { const [w, h] = placedSize(); $("#plW").value = +w.toFixed(1); $("#plH").value = +h.toFixed(1); }
+  else { $("#plW").value = ""; $("#plH").value = ""; }
+}
+function placeChanged() { updatePlaceInputs(); saveSettings({ place: S.place }); renderLayers(); scheduleDraw(); }
+$("#plX").onchange = () => { S.place.x = +$("#plX").value || 0; placeChanged(); };
+$("#plY").onchange = () => { S.place.y = +$("#plY").value || 0; placeChanged(); };
+$("#plS").onchange = () => { const v = +$("#plS").value; if (v > 0) S.place.scale = v / 100; placeChanged(); };
+$("#plR").onchange = () => { S.place.rotate = +$("#plR").value; placeChanged(); };
+$("#plW").onchange = () => {
+  if (!doc) return; const [w] = placedSize(); const v = +$("#plW").value;
+  if (v > 0 && w > 0) S.place.scale *= v / w; placeChanged();
+};
+$("#plH").onchange = () => {
+  if (!doc) return; const [, h] = placedSize(); const v = +$("#plH").value;
+  if (v > 0 && h > 0) S.place.scale *= v / h; placeChanged();
+};
+$("#btnCenter").onclick = () => {
+  if (!doc) return; const [w, h] = placedSize();
+  S.place.x = (S.paper.w - w) / 2; S.place.y = (S.paper.h - h) / 2; placeChanged();
+};
+$("#btnFitPaper").onclick = () => {
+  if (!doc) return; const m = 10; const [w, h] = placedSize();
+  const f = Math.min((S.paper.w - 2 * m) / w, (S.paper.h - 2 * m) / h);
+  S.place.scale *= f; const [w2, h2] = placedSize();
+  S.place.x = (S.paper.w - w2) / 2; S.place.y = (S.paper.h - h2) / 2; placeChanged();
+};
+$("#btnOrig").onclick = () => {
+  if (!doc) return; S.place = { x: doc.bbox[0], y: doc.bbox[1], scale: 1, rotate: 0 }; placeChanged();
+};
+$("#btnFrame").onclick = () => api("/api/frame", { place: S.place });
+
+// --------------------------------------------------------------- Datei
+$("#btnOpen").onclick = () => $("#file").click();
+$("#file").onchange = () => { if ($("#file").files[0]) uploadFile($("#file").files[0]); $("#file").value = ""; };
+const wrap = $("#canvasWrap");
+window.addEventListener("dragover", (e) => { e.preventDefault(); $("#drop").classList.remove("hidden"); $("#drop").classList.add("active"); });
+window.addEventListener("dragleave", (e) => { if (e.relatedTarget === null) { $("#drop").classList.remove("active"); if (doc) $("#drop").classList.add("hidden"); } });
+window.addEventListener("drop", (e) => {
+  e.preventDefault(); $("#drop").classList.remove("active");
+  if (doc) $("#drop").classList.add("hidden");
+  const f = e.dataTransfer.files[0];
+  if (f) uploadFile(f);
+});
+
+async function uploadFile(f) {
+  if (jobActive()) { logLocal("err", "Während eines Plots kann keine neue Datei geladen werden."); return; }
+  if (!/\.svg$/i.test(f.name)) { logLocal("err", "Bitte eine SVG-Datei wählen."); return; }
+  $("#busy").hidden = false; $("#busy").textContent = `„${f.name}“ wird verarbeitet…`;
+  try {
+    const r = await fetch("/api/upload", { method: "POST", headers: { "X-Filename": encodeURIComponent(f.name) }, body: f });
+    const j = await r.json();
+    if (j.error) { logLocal("err", j.error); return; }
+    const newFile = !doc || doc.hash !== j.doc.hash;
+    setDoc(j, newFile);
+    logLocal("info", `${f.name} geladen (${fmtNum(j.took, 1)} s)`);
+  } catch (e) {
+    logLocal("err", "Fehler beim Laden: " + e);
+  } finally { $("#busy").hidden = true; }
+}
+
+$("#btnProcess").onclick = async () => {
+  if (!doc) return;
+  $("#busy").hidden = false; $("#busy").textContent = "Wird neu berechnet…";
+  const j = await api("/api/process", S.optimize);
+  $("#busy").hidden = true;
+  $("#btnProcess").classList.remove("primary");
+  if (j.doc) setDoc(j, false);
+};
+
+function setDoc(j, resetPlacement) {
+  const prevOrder = order;
+  doc = j.doc;
+  resumeInfo = j.resume;
+  if (!doc) return;
+  // Reihenfolge/Auswahl beibehalten, wenn gleiche Ebenen
+  const ids = doc.layers.map((l) => l.id);
+  if (!resetPlacement && prevOrder.length && prevOrder.every((o) => ids.includes(o.id)) && prevOrder.length === ids.length) order = prevOrder;
+  else order = ids.map((id) => ({ id, on: true }));
+  if (resumeInfo) {
+    S.place = resumeInfo.place;
+  } else if (resetPlacement) {
+    // Position aus der Datei übernehmen (Illustrator-Zeichenfläche = Blatt)
+    S.place = { x: doc.bbox[0], y: doc.bbox[1], scale: 1, rotate: 0 };
+  }
+  saveSettings({ place: S.place });
+  $("#drop").classList.add("hidden");
+  const [w, h] = placedSize();
+  $("#docInfo").innerHTML = `<b>${esc(doc.name)}</b><br>${fmtNum(doc.bbox[2] - doc.bbox[0], 1)} × ${fmtNum(doc.bbox[3] - doc.bbox[1], 1)} mm Inhalt · ${doc.layers.length} Ebene(n)<br>` +
+    `${fmtNum(doc.layers.reduce((a, l) => a + l.count, 0))} Pfade · Zeichenweg ${fmtNum(doc.layers.reduce((a, l) => a + l.draw_len, 0) / 1000, 1)} m`;
+  $("#warnings").innerHTML = doc.warnings.map((w) => `<div class="w">⚠ ${esc(w)}</div>`).join("");
+  void w; void h;
+  updatePlaceInputs(); renderLayers(); renderResume(); scheduleDraw();
+}
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// --------------------------------------------------------------- Ebenen
+function renderLayers() {
+  const box = $("#layers");
+  if (!doc) { box.textContent = "–"; $("#totalTime").textContent = ""; return; }
+  box.classList.remove("muted");
+  let total = 0;
+  box.innerHTML = "";
+  order.forEach((o, i) => {
+    const l = doc.layers.find((x) => x.id === o.id);
+    const secs = layerSeconds(l);
+    if (o.on) total += secs;
+    const row = document.createElement("div");
+    row.className = "layer";
+    if (job && job.layer_ids && jobActive()) {
+      const ji = job.layer_ids.indexOf(o.id);
+      if (ji === job.layer) row.classList.add("current");
+      if (ji >= 0 && ji < job.layer) row.classList.add("done");
+    }
+    row.innerHTML = `<input type="checkbox" ${o.on ? "checked" : ""} ${jobActive() ? "disabled" : ""}>
+      <span class="sw" style="background:${l.color}"></span>
+      <span class="nm" title="${esc(l.name)}">${esc(l.name)}</span>
+      <span class="meta">${fmtNum(l.count)} Pfade<br>${fmtNum(l.draw_len * S.place.scale / 1000, 1)} m · ${fmtTime(secs)}</span>
+      <span class="mv"><button title="nach oben">▲</button><button title="nach unten">▼</button></span>`;
+    row.querySelector("input").onchange = (e) => { o.on = e.target.checked; renderLayers(); scheduleDraw(); };
+    const [up, dn] = row.querySelectorAll(".mv button");
+    up.disabled = i === 0 || jobActive(); dn.disabled = i === order.length - 1 || jobActive();
+    up.onclick = () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; renderLayers(); scheduleDraw(); };
+    dn.onclick = () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; renderLayers(); scheduleDraw(); };
+    box.appendChild(row);
+  });
+  $("#totalTime").textContent = `≈ ${fmtTime(total)}`;
+  // Startauswahl
+  const sel = $("#startLayer"), prev = sel.value;
+  sel.innerHTML = order.filter((o) => o.on).map((o, i) => `<option value="${i}">${i + 1}. ${esc(doc.layers.find((x) => x.id === o.id).name)}</option>`).join("");
+  if (prev && +prev < sel.options.length) sel.value = prev;
+  renderStartInfo();
+}
+
+// --------------------------------------------------------------- Plot
+async function startPlot(layerIds, startLayer, startPath, reverse) {
+  if (!connected()) { logLocal("err", "Zuerst den Plotter verbinden."); return; }
+  if (!doc) { logLocal("err", "Zuerst eine Datei laden."); return; }
+  if (!layerIds.length) { logLocal("err", "Keine Ebene ausgewählt."); return; }
+  if (!(st && st.zero_set) && !confirm("Ist der Nullpunkt gesetzt?\n\nDer Stift sollte an der oberen linken Blattecke stehen und dort „Nullpunkt hier“ gedrückt worden sein.\n\nTrotzdem starten?")) return;
+  const r = await api("/api/job/start", { layers: layerIds, start_layer: startLayer, start_path: startPath, place: S.place, reverse: !!reverse });
+  if (r.ok) { resumeInfo = null; startSel = null; renderResume(); renderStartInfo(); }
+}
+$("#btnStart").onclick = () => {
+  const ids = enabledIds();
+  if (startSel) startPlot(ids, ids.indexOf(startSel.id), startSel.path, isReverse());
+  else startPlot(ids, 0, null, isReverse());
+};
+$("#btnPause").onclick = () => {
+  if (!job) return;
+  if (job.state === "läuft") api("/api/job/pause", {});
+  else if (job.state === "pausiert") api("/api/job/resume", {});
+};
+$("#btnStop").onclick = () => { if (jobActive() && confirm("Plot wirklich abbrechen?\n(Du kannst später an dieser Stelle fortsetzen.)")) api("/api/job/stop", {}); };
+$("#btnEstop").onclick = () => { if (jobActive()) api("/api/job/stop", {}); else api("/api/reset", {}); };
+
+function renderResume() {
+  const box = $("#resumeBox");
+  if (!resumeInfo || jobActive()) { box.hidden = true; return; }
+  const r = resumeInfo;
+  box.hidden = false;
+  box.innerHTML = `Letzter Plot dieser Datei wurde unterbrochen (${esc(r.time)}):<br>
+    Ebene ${r.layer + 1} „${esc(String(r.layer_name).split("  ")[0])}“, Pfad ${fmtNum(r.path + 1)}${r.reverse ? " (rückwärts)" : ""}.
+    <button class="primary">Stelle anzeigen &amp; übernehmen</button>`;
+  box.querySelector("button").onclick = () => {
+    const ids = doc.layers.map((l) => l.id);
+    if (!r.layer_ids.every((id) => ids.includes(id))) { logLocal("err", "Ebenen passen nicht mehr zur Datei."); return; }
+    order = r.layer_ids.map((id) => ({ id, on: true })).concat(ids.filter((id) => !r.layer_ids.includes(id)).map((id) => ({ id, on: false })));
+    S.place = r.place; updatePlaceInputs();
+    S.job.reverse = !!r.reverse; $("#chkReverse").checked = S.job.reverse; saveSettings({ job: { reverse: S.job.reverse }, place: S.place });
+    startSel = { id: r.layer_ids[r.layer], path: r.path };
+    renderLayers(); scheduleDraw();
+    logLocal("info", "Fortsetzungs-Punkt übernommen (rot markiert). Bereits Geplottetes ist kräftig, der Rest blass – mit ▶ Start weiterplotten.");
+  };
+}
+
+function renderJob() {
+  const active = jobActive();
+  $("#btnStart").disabled = active || !doc || !connected();
+  $("#btnPause").disabled = !job || !["läuft", "pausiert"].includes(job.state);
+  $("#btnPause").textContent = job && job.state === "pausiert" ? "▶ Weiter" : "❚❚ Pause";
+  $("#btnStop").disabled = !active;
+  const pc = $("#penChange");
+  if (job && job.state === "stiftwechsel") {
+    pc.hidden = false;
+    pc.innerHTML = `🖊 ${esc(job.message)}<button class="primary">Weiter – Stift ist gewechselt</button>`;
+    pc.querySelector("button").onclick = () => api("/api/job/resume", {});
+  } else pc.hidden = true;
+
+  if (!job) { $("#progText").textContent = "Bereit"; $("#progBar").style.width = "0"; return; }
+  let total = 0, done = 0, estTotal = 0, estDone = 0;
+  job.layers.forEach((l, i) => {
+    const dl = doc && doc.layers.find((x) => x.id === l.id);
+    const secs = dl ? layerSeconds(dl) : 0;
+    total += l.count; estTotal += secs;
+    let d = i < job.layer ? l.count : i === job.layer ? (job.reverse ? l.count - 1 - job.path : job.path) : 0;
+    if (job.state === "fertig") d = l.count;
+    done += d; estDone += l.count ? secs * d / l.count : 0;
+  });
+  const frac = total ? done / total : 0;
+  const efrac = estTotal ? estDone / estTotal : frac;
+  $("#progBar").style.width = (efrac * 100).toFixed(1) + "%";
+  let remain = estTotal - estDone;
+  if (job.elapsed > 60 && efrac > 0.02 && job.state !== "fertig") {
+    const startFrac = job._startFrac ?? efrac;
+    void startFrac;
+    remain = remain * 0.5 + (job.elapsed / Math.max(efrac, 0.001)) * (1 - efrac) * 0.5;
+  }
+  const L = job.layers[Math.min(job.layer, job.layers.length - 1)];
+  const parts = [];
+  if (job.state === "fertig") parts.push(`✔ Fertig in ${fmtTime(job.elapsed)}`);
+  else if (job.state === "abgebrochen") parts.push(`✖ ${job.message}`);
+  else {
+    parts.push(`${job.state === "pausiert" ? "Pausiert" : job.state === "stiftwechsel" ? "Stiftwechsel" : "Läuft"} · Ebene ${job.layer + 1}/${job.layers.length} „${L ? L.name : ""}“`);
+    parts.push(`Pfad ${fmtNum(job.path + 1)}/${fmtNum(L ? L.count : 0)} · ${fmtNum(efrac * 100, 1)} %`);
+    parts.push(`${fmtTime(job.elapsed)} vergangen · ca. ${fmtTime(remain)} übrig`);
+  }
+  if (job.errors) parts.push(`⚠ ${job.errors} Fehler (siehe Konsole)`);
+  $("#progText").innerHTML = parts.map(esc).join("<br>");
+}
+
+// --------------------------------------------------------------- Steuerung
+$$("[data-jog]").forEach((b) => b.onclick = () => {
+  const [dx, dy] = b.dataset.jog.split(",").map(Number);
+  api("/api/jog", { x: dx * jogStep, y: dy * jogStep });
+});
+$$("[data-zjog]").forEach((b) => b.onclick = () => api("/api/jog", { z: +b.dataset.zjog }));
+function setJogStep(v) {
+  if (!(v > 0)) return;
+  jogStep = v;
+  $("#jogCustom").value = v;
+  $$("#jogStep [data-step]").forEach((x) => x.classList.toggle("on", +x.dataset.step === v));
+  try { localStorage.setItem("jogStep", String(v)); } catch (e) { /* egal */ }
+}
+$$("#jogStep [data-step]").forEach((b) => b.onclick = () => setJogStep(+b.dataset.step));
+$("#jogCustom").onchange = () => setJogStep(parseFloat($("#jogCustom").value));
+try { const v = parseFloat(localStorage.getItem("jogStep")); if (v > 0) setJogStep(v); } catch (e) { /* egal */ }
+$("#btnPenUp").onclick = () => api("/api/pen", { down: false });
+$("#btnPenDown").onclick = () => api("/api/pen", { down: true });
+$("#btnZero").onclick = () => api("/api/zero", {});
+$("#btnGoZero").onclick = () => api("/api/goto_zero", {});
+$("#btnMachineZero").onclick = () => api("/api/goto_machine_zero", {});
+$("#btnUnlock").onclick = () => api("/api/unlock", {});
+$("#btnAreaOpen").onclick = () => {
+  if (confirm("Grenzen auf das Firmware-Maximum öffnen?\nDanach nur in kleinen Schritten (1 mm) zum Anschlag joggen und die Grenze mit „Pos. → Max.“ wieder setzen."))
+    api("/api/area_open", {});
+};
+$("#btnAreaX").onclick = () => api("/api/area_from_pos", { axis: "x" });
+$("#btnAreaY").onclick = () => api("/api/area_from_pos", { axis: "y" });
+
+window.addEventListener("keydown", (e) => {
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+  const map = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  if (map[e.key] && connected() && !jobActive()) {
+    e.preventDefault(); api("/api/jog", { x: map[e.key][0] * jogStep, y: map[e.key][1] * jogStep });
+  } else if (e.key === "PageUp" && !jobActive()) { e.preventDefault(); api("/api/pen", { down: false }); }
+  else if (e.key === "PageDown" && !jobActive()) { e.preventDefault(); api("/api/pen", { down: true }); }
+  else if (e.key === " ") {
+    e.preventDefault();
+    if (job && job.state === "läuft") api("/api/job/pause", {});
+    else if (connected()) api("/api/jog/cancel", {});
+  }
+});
+
+// Verbindung
+async function loadPorts() {
+  const j = await api("/api/ports");
+  const sel = $("#port");
+  sel.innerHTML = (j.ports || []).map((p) => `<option value="${esc(p.port)}">${esc(p.port)} – ${esc(p.desc)}</option>`).join("");
+  const want = S.connection.port;
+  if ([...sel.options].some((o) => o.value === want)) sel.value = want;
+}
+$("#btnPorts").onclick = loadPorts;
+$("#btnConnect").onclick = async () => {
+  const b = $("#btnConnect");
+  if (connected()) { await api("/api/disconnect", {}); return; }
+  b.disabled = true; b.textContent = "Verbinde…";
+  await api("/api/connect", { port: $("#port").value, baud: +$("#baud").value });
+  b.disabled = false;
+};
+
+// Konsole
+$("#cmdForm").onsubmit = (e) => {
+  e.preventDefault();
+  const v = $("#cmd").value.trim();
+  if (v) api("/api/command", { gcode: v });
+  $("#cmd").value = "";
+};
+function addLog(e) {
+  const box = $("#log");
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
+  const div = document.createElement("div");
+  div.className = e.k;
+  div.innerHTML = `<span class="t">${esc(e.t)}</span>${esc(e.m)}`;
+  box.appendChild(div);
+  while (box.childElementCount > 500) box.firstChild.remove();
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+function logLocal(k, m) { addLog({ k, m, t: new Date().toLocaleTimeString("de-AT") }); }
+
+// --------------------------------------------------------------- Status
+let lastJobKey = "";
+async function poll() {
+  try {
+    const r = await fetch(`/api/status?log=${logSeq}`);
+    const j = await r.json();
+    st = j.machine;
+    serverArea = j.area;
+    // Einstellungen, die der Server geändert hat (Firmware-Grenzen), übernehmen
+    if (j.mset && stable(j.mset) !== stable(S.machine) && !saveTimer_active()) {
+      S.machine = j.mset; bindSettings(); renderLayers();
+    }
+    applySpeedLimits(j.vmax);
+    const prevActive = jobActive();
+    job = j.job;
+    j.log.forEach((e) => { addLog(e); logSeq = Math.max(logSeq, e.n); });
+    renderStatus();
+    renderJob();
+    const key = job ? `${job.state}|${job.layer}|${Math.floor(job.path / 50)}` : "";
+    if (key !== lastJobKey) { lastJobKey = key; renderLayers(); }
+    if (prevActive && !jobActive() && job && job.state === "abgebrochen" && doc) {
+      resumeInfo = { layer_ids: job.layer_ids, layer: job.resume[0], path: job.resume[1], place: S.place, reverse: job.reverse,
+        layer_name: job.layers[job.resume[0]] ? job.layers[job.resume[0]].name : "", time: "eben" };
+      renderResume();
+    }
+    scheduleDraw();
+  } catch (e) {
+    st = null; renderStatus();
+  }
+  setTimeout(poll, 300);
+}
+function renderStatus() {
+  const pill = $("#statePill");
+  const s = st && st.connected ? st.state : "Getrennt";
+  const cls = !st || !st.connected ? "off" : /^Idle/.test(s) ? "idle" : /^(Run|Jog|Home)/.test(s) ? "run" : /^(Hold|Door)/.test(s) ? "hold" : /^Alarm/.test(s) ? "alarm" : "off";
+  const names = { Idle: "Bereit", Run: "Fährt", Jog: "Verfährt", Hold: "Angehalten", Alarm: "Alarm", Door: "Tür", Home: "Referenzfahrt", Sleep: "Ruhezustand", Check: "Prüfmodus" };
+  pill.className = "pill " + cls;
+  pill.textContent = names[s.split(":")[0]] || s;
+  const on = st && st.connected;
+  $("#posX").textContent = on ? st.wpos[0].toFixed(2) : "–";
+  $("#posY").textContent = on ? st.wpos[1].toFixed(2) : "–";
+  $("#posZ").textContent = on ? st.wpos[2].toFixed(2) : "–";
+  $("#btnConnect").textContent = on ? "Trennen" : "Verbinden";
+  $("#btnConnect").classList.toggle("primary", !on);
+  $("#port").disabled = on; $("#baud").disabled = on;
+  const ctl = on && !jobActive();
+  $$(".panel.left button, #btnFrame, #cmdForm button").forEach((b) => b.disabled = !ctl);
+  $("#btnUnlock").disabled = !on;
+}
+
+// --------------------------------------------------------------- Start
+(async function init() {
+  S = await api("/api/settings");
+  bindSettings();
+  updatePlaceInputs();
+  await loadPorts();
+  resizeCanvas(); fitView();
+  const d = await api("/api/doc");
+  if (d.doc) setDoc(d, false);
+  poll();
+})();

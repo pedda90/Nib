@@ -1,0 +1,12 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Persönliche Einstellungen / Laufzeitdaten
+settings.json
+job_state.json
+
+# Lokal
+.claude/
+plotter/
