@@ -7,6 +7,17 @@ Light and dark theme (follows Windows, or switch with the button at the top righ
 
 **Every control and setting explained: [USAGE.md](USAGE.md)**
 
+![Nib in light mode, paused at a pen change after two of three layers](docs/screenshot-light.png)
+
+<details>
+<summary>Dark mode</summary>
+
+![Nib in dark mode](docs/screenshot-dark.png)
+
+</details>
+
+*Screenshots at 2560 × 1440 (WQHD), using the built-in plotter simulator.*
+
 ## Running Nib
 Double-click **`Nib.exe`**. Nib opens in its own window – no browser needed.
 **Quitting:** close the window. If a plot is running (also paused or waiting for a pen change),

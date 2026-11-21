@@ -747,6 +747,9 @@ function renderResume() {
 
 function renderJob() {
   const active = jobActive();
+  // the resume hint only makes sense while no plot is running
+  if (active) $("#resumeBox").hidden = true;
+  else if (resumeInfo && $("#resumeBox").hidden) renderResume();
   $("#btnStart").disabled = active || !doc || !connected();
   $("#btnPause").disabled = !job || !["running", "paused"].includes(job.state);
   const paused = !!(job && job.state === "paused");
