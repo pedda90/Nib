@@ -1,4 +1,4 @@
-"""Simulierter GRBL-Plotter zum Testen ohne Hardware (Port-Name 'SIMULATOR')."""
+"""Simulated GRBL plotter for testing without hardware (port name 'SIMULATOR')."""
 from __future__ import annotations
 
 import math
@@ -91,7 +91,7 @@ class MockSerial:
     def reset_input_buffer(self):
         pass
 
-    # --- intern -----------------------------------------------------------
+    # --- internal ---------------------------------------------------------
     def _status(self):
         w = [self.mpos[i] - self.g92[i] for i in range(3)]
         self._out.put(
@@ -125,7 +125,7 @@ class MockSerial:
             self._out.put(b"ok\r\n")
             return
         if g in (0, 1) or any(a in words for a in "XYZ"):
-            # blockiert, wenn Planner voll ist -> 'ok' verzögert (wie echte Hardware)
+            # blocks when the planner is full -> 'ok' delayed (like real hardware)
             if "G53" in line:
                 words["G53"] = 1
             self._planner.put((dict(words), "G91" in line, self._gen))

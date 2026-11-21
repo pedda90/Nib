@@ -1,6 +1,6 @@
 /* ================================================================ Nib
-   Farben: warme Neutraltöne (Papier hell / Graphit dunkel), Akzent Zinnoberrot.
-   Schrift: IBM Plex Sans + IBM Plex Mono (lokal, SIL OFL, siehe fonts/LICENSE-OFL.txt). */
+   Colors: warm neutrals (light paper / dark graphite), vermilion accent.
+   Type: IBM Plex Sans + IBM Plex Mono (local, SIL OFL, see fonts/LICENSE-OFL.txt). */
 
 @font-face { font-family: "Plex Sans"; src: url(fonts/ibm-plex-sans-latin-400-normal.woff2) format("woff2"); font-weight: 400; font-style: normal; }
 @font-face { font-family: "Plex Sans"; src: url(fonts/ibm-plex-sans-latin-400-italic.woff2) format("woff2"); font-weight: 400; font-style: italic; }
@@ -9,19 +9,19 @@
 @font-face { font-family: "Plex Mono"; src: url(fonts/ibm-plex-mono-latin-400-normal.woff2) format("woff2"); font-weight: 400; }
 @font-face { font-family: "Plex Mono"; src: url(fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2"); font-weight: 500; }
 
-/* ---------- Farbsystem: hell */
+/* ---------- colors: light */
 :root {
-  --bg: #ebe6dc;          /* Fensterhintergrund / Leisten-Trennung */
-  --panel: #f8f5ef;       /* Seitenleisten */
-  --field: #efeae1;       /* Eingabefelder */
-  --btn: #e9e3d8;         /* neutrale Buttons */
+  --bg: #ebe6dc;          /* window background / panel separation */
+  --panel: #f8f5ef;       /* side panels */
+  --field: #efeae1;       /* input fields */
+  --btn: #e9e3d8;         /* neutral buttons */
   --btn-h: #e0d9cc;
   --line: #e1d9cb;
   --line2: #cfc6b6;
   --text: #1d1b18;
   --muted: #756e64;
   --faint: #a39b8f;
-  --accent: #d9472a;      /* Zinnoberrot */
+  --accent: #d9472a;      /* vermilion */
   --accent-h: #c23b20;
   --accent-text: #c03a1f;
   --accent-soft: rgba(217, 71, 42, .11);
@@ -30,7 +30,7 @@
   --warn: #a86b0c;
   --bad: #c22f24;
   --bad-soft: rgba(194, 47, 36, .1);
-  --table: #dcd5c8;       /* Tisch unter dem Blatt */
+  --table: #dcd5c8;       /* table under the sheet */
   --paper: #fffdf8;
   --grid: rgba(60, 45, 20, .055);
   --nib-cut: #f8f5ef;
@@ -40,7 +40,7 @@
   --mono: "Plex Mono", Consolas, monospace;
   color-scheme: light;
 }
-/* ---------- Farbsystem: dunkel */
+/* ---------- colors: dark */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #121110; --panel: #1c1b18; --field: #26241f; --btn: #2a2824; --btn-h: #34312c;
@@ -60,7 +60,7 @@
   --shadow: none; color-scheme: dark;
 }
 
-/* ---------- Grundlagen */
+/* ---------- basics */
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
 body { display: flex; flex-direction: column; overflow: hidden; font: 13px/1.4 var(--sans); -webkit-font-smoothing: antialiased; }
@@ -107,7 +107,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; m
 .muted { color: var(--muted); }
 .hint { color: var(--muted); font-size: 11.5px; margin: 8px 0 0; line-height: 1.45; }
 
-/* ---------- Kopfleiste */
+/* ---------- top bar */
 .topbar { display: flex; align-items: center; gap: 14px; height: 48px; padding: 0 12px 0 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 7px; padding-right: 14px; margin-right: 2px; border-right: 1px solid var(--line); height: 28px; }
 .brand .mark { width: 22px; height: 22px; color: var(--accent); }
@@ -119,7 +119,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; m
 .estop:hover:not(:disabled) { background: var(--bad); filter: brightness(1.1); }
 .estop .ic { fill: currentColor; stroke: none; }
 
-/* ---------- Statusleiste */
+/* ---------- status bar */
 .statusbar { display: flex; align-items: center; gap: 16px; height: 26px; padding: 0 14px; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
 .state { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; color: var(--text); min-width: 96px; }
 .state::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
@@ -133,7 +133,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; m
 .sb-note.warn { color: var(--warn); }
 .sb-claim { font-style: italic; color: var(--faint); }
 
-/* ---------- Aufteilung */
+/* ---------- layout */
 .layout { flex: 1; display: grid; grid-template-columns: var(--lw, 290px) 5px minmax(0, 1fr) 5px var(--rw, 330px);
   grid-template-rows: minmax(0, 1fr); min-height: 0; }
 .panel { background: var(--panel); overflow-y: auto; overflow-x: hidden; min-height: 0; }
@@ -150,7 +150,7 @@ body.resizing, body.resizing * { user-select: none; }
 body.resizing.col, body.resizing.col * { cursor: col-resize !important; }
 body.resizing.row, body.resizing.row * { cursor: row-resize !important; }
 
-/* ---------- Bereiche in den Leisten */
+/* ---------- panel sections */
 section { padding: 14px 14px 16px; border-bottom: 1px solid var(--line); }
 section:last-child { border-bottom: 0; }
 h2 { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
@@ -179,7 +179,7 @@ label.chk { justify-content: flex-start; gap: 8px; cursor: pointer; }
 .grid2 label span { width: 100%; }
 .grid2 select { width: 100%; }
 
-/* Zahlenfeld mit Einheit im Feld: Zahlen rechtsbündig untereinander, Einheit in fester Spalte */
+/* number field with the unit inside: numbers right-aligned in a column, unit in a fixed column */
 .uf { display: flex; align-items: center; width: 118px; flex: none; height: 28px; background: var(--field);
   border: 1px solid transparent; border-radius: var(--radius); }
 .uf:hover { border-color: var(--line2); }
@@ -196,7 +196,7 @@ small.def { flex-basis: 100%; color: var(--faint); font-size: 10.5px; margin-top
 small.def.changed { color: var(--warn); }
 label.chk small.def { flex-basis: auto; margin-left: 2px; }
 
-/* ---------- Verfahren */
+/* ---------- jog */
 .jogwrap { display: flex; justify-content: center; }
 .jog { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; width: 100%; }
 .jog button { height: 42px; background: var(--btn); }
@@ -206,7 +206,7 @@ label.chk small.def { flex-basis: auto; margin-left: 2px; }
 .seg button { flex: 1; padding: 0; font-family: var(--mono); font-size: 12px; }
 .seg button.on { background: var(--text); color: var(--panel); }
 
-/* ---------- Mitte */
+/* ---------- center */
 .stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--table); }
 .stagebar { display: flex; gap: 10px; align-items: center; height: 46px; padding: 0 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
 #docInfo { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; font-size: 12.5px; }
@@ -240,7 +240,7 @@ label.toggle { margin: 0; color: var(--muted); font-size: 12.5px; }
 #cmdForm { display: flex; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--line); }
 #cmd { flex: 1; font-family: var(--mono); font-size: 12px; }
 
-/* ---------- Ebenen */
+/* ---------- layers */
 .layers { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
 .layer { display: grid; grid-template-columns: 16px 12px 1fr auto auto; gap: 8px; align-items: center; padding: 6px 6px 6px 8px;
   border-radius: var(--radius); border: 1px solid transparent; }
@@ -275,10 +275,10 @@ label.toggle { margin: 0; color: var(--muted); font-size: 12.5px; }
 .startinfo .k { color: var(--muted); }
 #btnPick.on { background: var(--accent); color: var(--on-accent); }
 
-/* ---------- Platzierung */
+/* ---------- placement */
 .placetop { display: grid; grid-template-columns: 27px 1fr; column-gap: 14px; align-items: end; }
 .placetop .grid2 label { margin-bottom: 4px; }
-/* Bezugspunkt wie in Adobe: kleine Quadrate auf einem dünnen Rahmen */
+/* reference point like in Adobe apps: small squares on a thin frame */
 .anchor { position: relative; display: grid; grid-template-columns: repeat(3, 9px); grid-template-rows: repeat(3, 9px);
   gap: 0; width: max-content; margin-bottom: 4px; }
 .anchor::before { content: ""; position: absolute; left: 4px; top: 4px; right: 4px; bottom: 4px;

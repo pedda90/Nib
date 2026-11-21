@@ -1,4 +1,4 @@
-"""GRBL-Verbindung, Streaming (Zeichenzähl-Protokoll) und Plot-Auftrag."""
+"""GRBL connection, streaming (character-counting protocol) and plot job."""
 from __future__ import annotations
 
 import collections
@@ -11,7 +11,7 @@ import serial.tools.list_ports
 
 from mockgrbl import MockSerial
 
-RX_BUFFER = 127          # GRBL Standard: 128 Byte Empfangspuffer
+RX_BUFFER = 127          # GRBL default: 128-byte receive buffer
 SIM_PORT = "SIMULATOR"
 STATUS_RE = re.compile(r"<([^|>]+)\|(.*)>")
 
@@ -33,11 +33,11 @@ class Machine:
         self.fw = {}
         self.zero_set = False
         self.cv = threading.Condition(self.lock)
-        self.pending = collections.deque()     # (zeile, tag)
-        self.inflight = collections.deque()    # (laenge, zeile, tag)
+        self.pending = collections.deque()     # (line, tag)
+        self.inflight = collections.deque()    # (length, line, tag)
         self.log = collections.deque(maxlen=400)
         self.log_seq = 0
-        self.state = "Getrennt"
+        self.state = "Disconnected"
         self.mpos = [0.0, 0.0, 0.0]
         self.wco = [0.0, 0.0, 0.0]
         self.feed = 0
@@ -50,12 +50,12 @@ class Machine:
         self.on_error = None      # callback(text)
         self.on_alarm = None      # callback(text)
         self.on_reset = None      # callback()
-        self.on_fw = None         # callback(fw) wenn $130/$131 gelesen
-        self._last_ok_t = 0.0     # Zeitpunkt des letzten 'ok'
-        self._idle_since = None   # seit wann der Plotter 'Idle' meldet
-        self._raw = collections.deque(maxlen=300)   # letzte Zeilen (Zeit, rx/tx, Text) für Diagnose
-        self._anomalies = 0       # Antworten mit angehängtem/eingeschobenem Text
-        self._odd = collections.deque(maxlen=200)   # auffällige Zeilen (Zeit, Text)
+        self.on_fw = None         # callback(fw) once $130/$131 have been read
+        self._last_ok_t = 0.0     # time of the last 'ok'
+        self._idle_since = None   # since when the plotter has been reporting 'Idle'
+        self._raw = collections.deque(maxlen=300)   # recent lines (time, rx/tx, text) for diagnostics
+        self._anomalies = 0       # replies with appended/interleaved text
+        self._odd = collections.deque(maxlen=200)   # odd lines (time, text)
         self.lost_acks_total = 0
         self._diag_count = 0
 
@@ -64,11 +64,11 @@ class Machine:
         with self.lock:
             last = self.log[-1] if self.log else None
             if last and last["k"] == kind and last["m"] == text and time.time() - last.get("ts", 0) < 5:
-                return  # gleiche Meldung nicht mehrfach hintereinander
+                return  # don't repeat the same message back to back
             self.log_seq += 1
             self.log.append({"n": self.log_seq, "t": time.strftime("%H:%M:%S"), "k": kind, "m": text, "ts": time.time()})
 
-    # ----------------------------------------------------------- verbinden
+    # ----------------------------------------------------------- connect
     def connect(self, port, baud=115200):
         self.disconnect()
         if port == SIM_PORT:
@@ -83,8 +83,8 @@ class Machine:
         self._running = True
         self.state = "Connecting…"
         threading.Thread(target=self._reader, daemon=True).start()
-        # Manche Boards starten beim Öffnen neu und schicken ein Banner. Der UUNA-Plotter
-        # tut das nicht -> mit '$I' nach der Version fragen (kein Reset, nichts bewegt sich).
+        # Some boards reset when the port opens and send a banner. The UUNA plotter
+        # doesn't -> ask for the version with '$I' (no reset, nothing moves).
         if not self.banner_event.wait(1.5):
             self._write(b"\r\n")
             time.sleep(0.2)
@@ -96,7 +96,7 @@ class Machine:
         if not self.version:
             self._log("warn", "The plotter doesn't answer – is the right COM port selected "
                               "and the UUNA software closed?")
-        # Firmware-Einstellungen (u. a. max. Verfahrweg $130/$131) lesen
+        # read firmware settings (incl. max travel $130/$131)
         self.send("$$", tag=None)
         return True
 
@@ -115,7 +115,7 @@ class Machine:
             self._log("info", "Disconnected")
         self.ser = None
         self.port = None
-        self.state = "Getrennt"
+        self.state = "Disconnected"
         self.version = ""
 
     @property
@@ -132,12 +132,12 @@ class Machine:
         except Exception as e:
             self._log("err", f"Write error: {e}")
             self._running = False
-            self.state = "Getrennt"
+            self.state = "Disconnected"
 
     # --------------------------------------------------------------- threads
     def _reader(self):
-        # readline() liefert bei Timeout auch halbe Zeilen (z. B. "o" … "k"). Deshalb sammeln
-        # und nur vollständige Zeilen auswerten – sonst gehen 'ok' verloren und der Plot bleibt stehen.
+        # readline() also returns half lines on timeout (e.g. "o" … "k"). So collect them
+        # and only evaluate complete lines – otherwise 'ok' gets lost and the plot stalls.
         buf = b""
         while self._running and self.ser is not None:
             try:
@@ -145,7 +145,7 @@ class Machine:
             except Exception as e:
                 self._log("err", f"Read error: {e} – connection lost")
                 self._running = False
-                self.state = "Getrennt"
+                self.state = "Disconnected"
                 break
             if not raw:
                 continue
@@ -156,15 +156,15 @@ class Machine:
                 if line:
                     self._raw.append((time.time(), "rx", line))
                     self._handle_line(line)
-            if len(buf) > 4096:          # Müll ohne Zeilenende verwerfen
+            if len(buf) > 4096:          # discard junk without a line ending
                 buf = b""
 
     def _handle_line(self, line):
         if True:
             if line != "ok" and (line.startswith("<") or line.startswith("ok")):
-                # Statusmeldung und 'ok' können ineinander geschrieben sein, z. B.
+                # Status reports and 'ok' can be written into each other, e.g.
                 # "<Run|...>ok", "ok<Run|...>", "<Run|MPos:..|okFS:..>", "okok".
-                # In Statusmeldungen kommt "ok" sonst nie vor -> jedes "ok" ist eine Bestätigung.
+                # "ok" never appears in status reports otherwise -> every "ok" is an acknowledgement.
                 n_ok = line.count("ok")
                 rest = line.replace("ok", "")
                 if rest.startswith("error"):
@@ -180,12 +180,12 @@ class Machine:
                     if end > st:
                         self._parse_status(rest[st:end + 1])
                     elif re.fullmatch(r"<[A-Za-z]+(:\d)?(\|[A-Za-z]+:[-\d.,]+)*", rest[st:].strip()):
-                        self._parse_status(rest[st:].strip() + ">")   # nur das '>' fehlt
+                        self._parse_status(rest[st:].strip() + ">")   # only the '>' is missing
                     leftover = (rest[:st] + (rest[end + 1:] if end > st else "")).strip()
                 else:
                     leftover = rest.strip()
                 if line.startswith("<") and line.endswith(">") and n_ok == 0 and line.count("<") == 1:
-                    return                                   # normale Statusmeldung
+                    return                                   # normal status report
                 self._anomalies += 1
                 self._odd.append((time.strftime("%H:%M:%S"), line))
                 for _ in range(n_ok):
@@ -274,13 +274,13 @@ class Machine:
             time.sleep(0.2)
             self._check_lost_acks()
 
-    LOST_ACK_WAIT = 0.8   # s Stillstand, ab dem fehlende 'ok' angenommen werden
+    LOST_ACK_WAIT = 0.8   # s of standstill after which missing 'ok' are assumed
 
     def _check_lost_acks(self):
-        """Sicherheitsnetz: Ist der Plotter *nach* dem Senden des ältesten offenen Befehls in
-        den Stillstand (Idle) gegangen und kam seit LOST_ACK_WAIT kein 'ok' mehr, hat er alle
-        Befehle ausgeführt (nachgemessen: Stiftposition = Ziel des zuletzt gesendeten Befehls),
-        nur die Bestätigungen fehlen. Dann den Zähler freigeben, damit es sofort weitergeht."""
+        """Safety net: if the plotter went to standstill (Idle) *after* the oldest pending
+        command was sent and no 'ok' has arrived for LOST_ACK_WAIT, it has executed all
+        commands (verified: pen position = target of the last command sent); only the
+        acknowledgements are missing. Then release the counter so sending continues at once."""
         now = time.time()
         w = self.LOST_ACK_WAIT
         with self.cv:
@@ -299,11 +299,11 @@ class Machine:
         self._log("warn", f"{n} acknowledgement(s) from the plotter went missing – continuing (total {self.lost_acks_total})")
         self._write_diag(n, pend, raw)
 
-    DIAG_FILE = "verbindung_diagnose.log"
+    DIAG_FILE = "connection_diagnostics.log"
 
     def _write_diag(self, n, pend, raw):
-        """Die letzten gesendeten/empfangenen Zeilen in eine Datei schreiben (max. 20 Einträge
-        pro Sitzung), damit man sieht, was mit den 'ok' passiert ist."""
+        """Write the most recent sent/received lines to a file (max. 20 entries
+        per session) so you can see what happened to the 'ok'."""
         if self._diag_count >= 20:
             return
         self._diag_count += 1
@@ -314,11 +314,11 @@ class Machine:
                     else os.path.dirname(os.path.abspath(__file__)))
             path = os.path.join(base, self.DIAG_FILE)
             with open(path, "a", encoding="utf-8") as f:
-                f.write(f"\n===== {time.strftime('%d.%m.%Y %H:%M:%S')}  {n} fehlende ok, "
-                        f"Auffälligkeiten bisher: {self._anomalies}\n")
-                f.write("offen: " + " | ".join(pend) + "\n")
+                f.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')}  {n} missing ok, "
+                        f"anomalies so far: {self._anomalies}\n")
+                f.write("pending: " + " | ".join(pend) + "\n")
                 if self._odd:
-                    f.write("auffällige Zeilen (zuletzt):\n")
+                    f.write("odd lines (most recent):\n")
                     for t, l in list(self._odd)[-40:]:
                         f.write(f"  {t} {l!r}\n")
                     f.write("Verlauf:\n")
@@ -380,7 +380,7 @@ class Machine:
             self.cv.notify_all()
 
     def z_check(self, z):
-        """Fehlertext, wenn Z (Arbeitskoordinate) außerhalb der Firmware-Grenze 0..$132 liegt."""
+        """Error text if Z (work coordinate) is outside the firmware limit 0..$132."""
         if not self.fw.get(20) or not self.fw.get(132):
             return None
         mz = z + self.wco[2]
@@ -396,7 +396,7 @@ class Machine:
         return -self.wco[2], self.fw[132] - self.wco[2]
 
     def soft_reset_keep_origin(self, z_up, z_feed):
-        """Stoppt sofort, behält aber den gesetzten Nullpunkt (G92) bei."""
+        """Stops immediately but keeps the origin that was set (G92)."""
         wpos = [self.mpos[i] - self.wco[i] for i in range(3)]
         self.realtime(b"!")
         t0 = time.time()
@@ -414,7 +414,7 @@ class Machine:
         if self.state == "Alarm" or self.last_alarm:
             self.send("$X", tag=None)
             self.last_alarm = ""
-        # Nullpunkt wiederherstellen (G92 geht beim Reset verloren)
+        # restore the origin (G92 is lost on reset)
         lines = [f"G92 X{wpos[0]:.3f} Y{wpos[1]:.3f}", "G21", "G90"]
         if z_up is not None and self.z_check(z_up) is None:
             lines.append(f"G1 Z{z_up} F{int(z_feed)}")
@@ -444,22 +444,22 @@ class Machine:
 
 
 class Job:
-    """Ein Plot-Auftrag über mehrere Ebenen mit Stiftwechsel-Pausen."""
+    """A plot job over several layers with pen-change pauses."""
 
     def __init__(self, machine: Machine, layers, build_layer, header, footer,
                  start_layer=0, start_path=0, pen_change=True, on_progress=None, change_moves=None):
         self.m = machine
         self.layers = layers                # [{id,name,color,count}]
-        self.build_layer = build_layer      # f(li, start_path) -> [(zeile, tag)]
+        self.build_layer = build_layer      # f(li, start_path) -> [(line, tag)]
         self.header = header
         self.footer = footer
         self.start_layer = start_layer
         self.start_path = start_path
         self.pen_change = pen_change
         self.on_progress = on_progress
-        self.change_moves = change_moves    # f() -> Zeilen: Stift hoch + zum Nullpunkt
-        self._next_layer = None             # beim Stiftwechsel: Ebene, die als nächste kommt
-        self.state = "läuft"
+        self.change_moves = change_moves    # f() -> lines: pen up + go to origin
+        self._next_layer = None             # during a pen change: the layer that comes next
+        self.state = "running"
         self.message = ""
         self.layer_idx = start_layer
         self.path_idx = start_path if start_path is not None else 0
@@ -482,7 +482,7 @@ class Job:
     def start(self):
         self.thread.start()
 
-    # Callbacks vom Machine-Reader
+    # callbacks from the machine reader
     def _ack(self, tag):
         if isinstance(tag, tuple):
             self.lines_acked += 1
@@ -492,26 +492,26 @@ class Job:
                 self.on_progress(self)
 
     def _error(self, text):
-        if self.state in ("läuft", "pausiert"):
+        if self.state in ("running", "paused"):
             self.errors += 1
 
     def _alarm(self, text):
-        if self.state in ("läuft", "pausiert", "stiftwechsel"):
+        if self.state in ("running", "paused", "pen_change"):
             self._abort = True
-            self.state = "abgebrochen"
+            self.state = "aborted"
             self.message = f"Aborted by {text}"
             self._continue.set()
 
     def _reset(self):
-        if self.state in ("läuft", "pausiert") and not self._abort:
+        if self.state in ("running", "paused") and not self._abort:
             self._abort = True
-            self.state = "abgebrochen"
+            self.state = "aborted"
             self.message = "The controller restarted unexpectedly"
             self._continue.set()
 
     def resume_point(self):
         if not self.recent and self._next_layer is not None:
-            # Vorige Ebene ist komplett fertig -> nächste Ebene von vorne (rückwärts: vom Ende)
+            # previous layer is completely done -> next layer from the start (reverse: from the end)
             li = self._next_layer
             return (li, self.layers[li]["count"] - 1 if getattr(self, "reverse", False) else 0)
         if not self.recent:
@@ -525,7 +525,7 @@ class Job:
         mark = None
         while not self._abort:
             if self.m.buffers_empty():
-                # erst zwei *neue* Statusmeldungen abwarten, dann muss 'Idle' kommen
+                # first wait for two *new* status reports, then 'Idle' must follow
                 if mark is None:
                     mark = self.m.status_seq
                 elif self.m.status_seq >= mark + 2 and self.m.state.startswith("Idle"):
@@ -534,7 +534,7 @@ class Job:
                 mark = None
             if not self.m.connected:
                 self._abort = True
-                self.state = "abgebrochen"
+                self.state = "aborted"
                 self.message = "Connection lost"
                 return False
             time.sleep(0.1)
@@ -546,17 +546,17 @@ class Job:
             if self._abort:
                 return
             if li > self.start_layer and self.pen_change:
-                # Stiftwechsel immer am Nullpunkt (Stift hoch, dann nach X0 Y0)
+                # pen changes always happen at the origin (pen up, then to X0 Y0)
                 self.m.queue_lines(self.change_moves() if self.change_moves else self.footer(False))
                 if not self._wait_done():
                     return
-                # Ebene davor ist vollständig gezeichnet: Fortsetzen-Stelle = nächste Ebene
+                # the layer before is fully drawn: resume point = next layer
                 self.recent.clear()
                 self._next_layer = li
                 self.layer_idx, self.path_idx = self.resume_point()
                 if self.on_progress:
                     self.on_progress(self)
-                self.state = "stiftwechsel"
+                self.state = "pen_change"
                 nm, col = self.layers[li]["name"], self.layers[li].get("color") or ""
                 self.message = (f"Change pen for layer {li + 1} “{nm}”"
                                 + (f" ({col})" if col and col.lower() not in nm.lower() else "")
@@ -566,12 +566,12 @@ class Job:
                 self._continue.wait()
                 if self._abort:
                     return
-                # Falls noch verfahren wird: erst fertig werden lassen
+                # if a jog is still running: let it finish first
                 while not self._abort and not self.m.state.startswith("Idle"):
                     time.sleep(0.1)
                 if self._abort:
                     return
-                self.state = "läuft"
+                self.state = "running"
                 self.message = ""
                 self.m.queue_lines(self.header())
             sp = self.start_path if li == self.start_layer else None
@@ -580,39 +580,39 @@ class Job:
             self.m.queue_lines(lines)
         self.m.queue_lines(self.footer(True))
         if self._wait_done():
-            self.state = "fertig"
+            self.state = "done"
             self.message = "Plot complete"
             self.m._log("info", f"Plot finished in {self.elapsed_str()}")
 
-    # Steuerung
+    # control
     def pause(self):
-        if self.state == "läuft":
+        if self.state == "running":
             self.m.realtime(b"!")
-            self.state = "pausiert"
+            self.state = "paused"
             self._pause_t = time.time()
 
     def resume(self):
-        if self.state == "pausiert":
+        if self.state == "paused":
             self.m.realtime(b"~")
-            self.state = "läuft"
+            self.state = "running"
             if self._pause_t:
                 self.t_paused += time.time() - self._pause_t
                 self._pause_t = None
-        elif self.state == "stiftwechsel":
+        elif self.state == "pen_change":
             self._continue.set()
 
     def abort(self, z_up, z_feed):
         was = self.state
         self._abort = True
-        self.state = "abgebrochen"
+        self.state = "aborted"
         self.message = "Stopped by user"
         self._continue.set()
-        if was in ("läuft", "pausiert"):
+        if was in ("running", "paused"):
             self.m.soft_reset_keep_origin(z_up, z_feed)
         else:
             self.m.clear_queue()
             if self.m.state.startswith("Jog"):
-                self.m.realtime(b"\x85")       # laufendes Verfahren abbrechen
+                self.m.realtime(b"\x85")       # cancel a running jog
 
     def elapsed(self):
         t = time.time() - self.t_start - self.t_paused

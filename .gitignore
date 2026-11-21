@@ -3,19 +3,21 @@
 __pycache__/
 *.pyc
 
-# Persönliche Einstellungen / Laufzeitdaten
+# personal settings / runtime data
 settings.json
 job_state.json
 
-# Lokal
+# local
 .claude/
 plotter/
 
-# Diagnose
+# diagnostics
+connection_diagnostics.log
 verbindung_diagnose.log
 build/
 Nib.exe
 Nib.exe
 nib.log
+webview_data/
 fensterdaten/
 nib.log

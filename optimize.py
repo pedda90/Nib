@@ -1,4 +1,4 @@
-"""Pfadoptimierung: vereinfachen, Doppelte entfernen, sortieren, zusammenfügen."""
+"""Path optimization: simplify, remove duplicates, sort, join."""
 from __future__ import annotations
 
 import math
@@ -13,7 +13,7 @@ def path_length(pts):
 
 
 def simplify(pts, tol):
-    """Ramer-Douglas-Peucker (iterativ) + Entfernen zu enger Punkte."""
+    """Ramer-Douglas-Peucker (iterative) + removal of points that are too close."""
     if tol <= 0 or len(pts) < 3:
         return pts
     keep = [False] * len(pts)
@@ -59,8 +59,8 @@ def dedupe(paths, q=0.05):
 
 
 def sort_paths(paths, start=(0.0, 0.0), with_index=False):
-    """Greedy Nearest-Neighbour mit Raster-Index; Pfade dürfen umgedreht werden.
-    Mit with_index=True kommt zusätzlich die Liste der Ursprungs-Indizes zurück."""
+    """Greedy nearest neighbour with a grid index; paths may be reversed.
+    With with_index=True the list of original indices is returned as well."""
     n = len(paths)
     if n < 2:
         return (list(paths), list(range(n))) if with_index else list(paths)
@@ -110,11 +110,11 @@ def sort_paths(paths, start=(0.0, 0.0), with_index=False):
                             best_d, best = d, (i, end)
                     if len(alive) != len(bucket):
                         grid[(gx, gy)] = alive
-            # Alles außerhalb von Ring r ist mindestens r*cell entfernt.
+            # everything outside ring r is at least r*cell away.
             if best is not None and math.sqrt(best_d) <= ring * cell:
                 break
             ring += 1
-        if best is None:  # Fallback (sollte nicht vorkommen)
+        if best is None:  # fallback (shouldn't happen)
             i = used.index(False)
             best = (i, 0)
         i, end = best
@@ -153,11 +153,11 @@ def optimize(paths, opts, start=(0.0, 0.0)):
 
 
 def optimize_tagged(paths, tags, opts, start=(0.0, 0.0)):
-    """Wie optimize, aber jeder Pfad behält seine Kennung (z. B. Unterebene).
-    Alle Pfade werden gemeinsam sortiert; Doppelte werden nur innerhalb derselben
-    Kennung entfernt und zusammengefügt wird nur bei gleicher Kennung. So kann man
-    später Kennungen herausfiltern, ohne dass sich die Reihenfolge der übrigen ändert.
-    Ergebnis: Liste von (kennung, pfad)."""
+    """Like optimize, but every path keeps its tag (e.g. sublayer).
+    All paths are sorted together; duplicates are only removed within the same
+    tag and joining only happens between paths with the same tag. This way tags can
+    be filtered out later without changing the order of the remaining paths.
+    Result: list of (tag, path)."""
     simp = float(opts.get("simplify", 0.02))
     min_len = float(opts.get("min_len", 0.0))
     items = []

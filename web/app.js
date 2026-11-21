@@ -2,21 +2,21 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 
-let S = null;            // Einstellungen (Server)
-let doc = null;          // geladenes Dokument
+let S = null;            // settings (server)
+let doc = null;          // loaded document
 let order = [];          // [{id, on}]
-let st = null;           // letzter Maschinenstatus
-let job = null;          // letzter Job-Status
+let st = null;           // last machine status
+let job = null;          // last job status
 let logSeq = 0;
 let resumeInfo = null;
-let startSel = null;     // {id, path} – Startpunkt (Original-Pfadindex)
+let startSel = null;     // {id, path} – start point (original path index)
 let pickMode = false;
 let jogStep = 10;
 const view = { s: 1, ox: 0, oy: 0 };
-let serverArea = null;   // erlaubter Bereich vom Server (inkl. Firmware-Grenzen)
+let serverArea = null;   // allowed area from the server (incl. firmware limits)
 const area = () => serverArea || [0, 0, S.machine.max_x, S.machine.max_y];
 
-// ------------------------------------------------------------------ Helfer
+// ------------------------------------------------------------------ helpers
 async function api(path, body) {
   try {
     const r = await fetch(path, body === undefined ? {} : {
@@ -43,7 +43,7 @@ function fmtTime(sec) {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
   return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
 }
-const jobActive = () => job && ["läuft", "pausiert", "stiftwechsel"].includes(job.state);
+const jobActive = () => job && ["running", "paused", "pen_change"].includes(job.state);
 const connected = () => st && st.connected;
 
 let saveTimer = null;
@@ -75,8 +75,8 @@ function deepMerge(a, b) {
   return o;
 }
 
-// ------------------------------------------------------------ Platzierung
-// identisch zu gcode.py make_placer()
+// ------------------------------------------------------------ placement
+// identical to gcode.py make_placer()
 function placedSize() {
   const b = doc.bbox, p = S.place;
   let w = b[2] - b[0], h = b[3] - b[1];
@@ -104,7 +104,7 @@ function machineToPaper(x, y) {
   return [x, y];
 }
 
-// ---------------------------------------------------------------- Zeit
+// ---------------------------------------------------------------- time
 function layerSeconds(l) {
   const m = S.machine, s = S.place.scale;
   const fd = Math.max(m.feed_draw, 1) / 60, ft = Math.max(m.feed_travel, 1) / 60, zf = Math.max(m.z_feed, 1) / 60;
@@ -114,7 +114,7 @@ function layerSeconds(l) {
 }
 
 // --------------------------------------------------------------- Theme
-// Farben für die Vorschau kommen aus den CSS-Variablen (hell/dunkel)
+// preview colors come from the CSS variables (light/dark)
 let TC = {};
 function readTheme() {
   const cs = getComputedStyle(document.documentElement);
@@ -132,15 +132,15 @@ function applyTheme(t) {
   readTheme(); scheduleDraw();
 }
 let theme = "system";
-try { theme = localStorage.getItem("theme") || "system"; } catch (e) { /* egal */ }
+try { theme = localStorage.getItem("theme") || "system"; } catch (e) { /* ignore */ }
 $("#btnTheme").onclick = () => {
   theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
-  try { localStorage.setItem("theme", theme); } catch (e) { /* egal */ }
+  try { localStorage.setItem("theme", theme); } catch (e) { /* ignore */ }
   applyTheme(theme);
 };
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readTheme(); scheduleDraw(); });
 
-// Einklappbare Bereiche (Zustand wird gemerkt)
+// collapsible sections (state is remembered)
 (function folds() {
   let F = {};
   try { F = JSON.parse(localStorage.getItem("folds")) || {}; } catch (e) { F = {}; }
@@ -150,7 +150,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { re
     sec.classList.toggle("closed", closed);
     sec.querySelector("h2").onclick = () => {
       F[sec.id] = sec.classList.toggle("closed");
-      try { localStorage.setItem("folds", JSON.stringify(F)); } catch (e) { /* egal */ }
+      try { localStorage.setItem("folds", JSON.stringify(F)); } catch (e) { /* ignore */ }
     };
   });
 })();
@@ -177,15 +177,15 @@ const toPaper = (sx, sy) => [(sx - view.ox) / view.s, (sy - view.oy) / view.s];
 const isReverse = () => !!(S && S.job && S.job.reverse);
 const enabledIds = () => order.filter((o) => o.on).map((o) => o.id);
 
-/* Was ist schon auf dem Papier? Liefert eine Funktion idx -> true/false (oder null = keine Anzeige).
-   Während/nach einem Plot: Fortschritt des Plots. Sonst: gewählter Startpunkt
-   (alles, was davor liegt, gilt als bereits geplottet). */
+/* What is already on paper? Returns a function idx -> true/false (or null = no display).
+   During/after a plot: the plot's progress. Otherwise: the chosen start point
+   (everything before it counts as already plotted). */
 function doneFn(layerId) {
-  const showJob = job && job.layer_ids && (jobActive() || (["abgebrochen", "fertig"].includes(job.state) && !startSel));
+  const showJob = job && job.layer_ids && (jobActive() || (["aborted", "done"].includes(job.state) && !startSel));
   if (showJob) {
     const i = job.layer_ids.indexOf(layerId);
     if (i < 0) return null;
-    if (job.state === "fertig" || i < job.layer) return () => true;
+    if (job.state === "done" || i < job.layer) return () => true;
     if (i > job.layer) return () => false;
     return job.reverse ? (idx) => idx > job.path : (idx) => idx < job.path;
   }
@@ -207,7 +207,7 @@ function draw() {
   const W = cv.width / d, H = cv.height / d;
   ctx.clearRect(0, 0, W, H);
 
-  // Blatt mit weichem Schatten
+  // sheet with a soft shadow
   const [px, py] = toScreen(0, 0);
   const pw = S.paper.w * view.s, ph = S.paper.h * view.s;
   ctx.save();
@@ -215,7 +215,7 @@ function draw() {
   ctx.fillStyle = TC.paper; ctx.fillRect(px, py, pw, ph);
   ctx.restore();
   ctx.strokeStyle = "rgba(60,40,10,.12)"; ctx.lineWidth = 1; ctx.strokeRect(Math.round(px) + .5, Math.round(py) + .5, Math.round(pw), Math.round(ph));
-  // Raster: 10 mm fein, 50 mm etwas kräftiger
+  // grid: 10 mm fine, 50 mm a little stronger
   for (const [step, alpha] of [[10, 1], [50, 2.2]]) {
     ctx.strokeStyle = TC.grid; ctx.globalAlpha = Math.min(1, alpha); ctx.lineWidth = alpha > 1 ? 1.2 : 1; ctx.beginPath();
     for (let x = step; x < S.paper.w; x += step) { const [sx] = toScreen(x, 0); ctx.moveTo(Math.round(sx) + .5, py); ctx.lineTo(Math.round(sx) + .5, py + ph); }
@@ -257,12 +257,12 @@ function draw() {
       ctx.strokeStyle = TC.accent; ctx.globalAlpha = .55; ctx.lineWidth = 0.7; ctx.setLineDash([3, 3]);
       ctx.stroke(travel); ctx.setLineDash([]); ctx.globalAlpha = 1;
     }
-    // Rahmen des Designs
+    // frame of the design
     const [w, h] = placedSize();
     const [bx, by] = toScreen(S.place.x, S.place.y);
     ctx.strokeStyle = "rgba(60,45,25,.45)"; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
     ctx.strokeRect(Math.round(bx) + .5, Math.round(by) + .5, w * view.s, h * view.s); ctx.setLineDash([]);
-    // Bezugspunkt für X/Y
+    // reference point for X/Y
     const [qx, qy] = toScreen(S.place.x + anchor[0] * w, S.place.y + anchor[1] * h);
     ctx.fillStyle = TC.accent; ctx.strokeStyle = TC.paper; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.rect(qx - 4, qy - 4, 8, 8); ctx.fill(); ctx.stroke();
@@ -272,7 +272,7 @@ function draw() {
     if (msg) { ctx.fillStyle = TC.bad; ctx.font = "500 12px 'Plex Sans', sans-serif"; ctx.fillText(msg, bx, by - 7); }
   }
 
-  // Arbeitsbereich
+  // work area
   if (S.machine.limits_on) {
     const [x0, y0, x1, y1] = area();
     const [ax, ay] = toScreen(x0, y0);
@@ -280,11 +280,11 @@ function draw() {
     ctx.strokeRect(ax, ay, (x1 - x0) * view.s, (y1 - y0) * view.s); ctx.setLineDash([]); ctx.globalAlpha = 1;
   }
 
-  // Nullpunkt: Winkel in der Blattecke
+  // origin: corner mark at the sheet corner
   ctx.strokeStyle = TC.accent; ctx.lineWidth = 2; ctx.lineCap = "square"; ctx.beginPath();
   ctx.moveTo(px, py + 16); ctx.lineTo(px, py); ctx.lineTo(px + 16, py); ctx.stroke(); ctx.lineCap = "round";
 
-  // Plotkopf: Fadenkreuz-Ring; Stift unten = gefüllt
+  // plot head: crosshair ring; pen down = filled
   if (connected()) {
     const [x, y] = machineToPaper(st.wpos[0], st.wpos[1]);
     const [sx, sy] = toScreen(x, y);
@@ -303,7 +303,7 @@ function draw() {
   }
 }
 
-// Startpunkt (bzw. Fortsetzungs-Punkt) markieren
+// mark the start point (or resume point)
 function markerPoint() {
   if (jobActive()) return null;
   const sel = startSel;
@@ -317,12 +317,12 @@ function drawMarker(place) {
   const m = markerPoint();
   if (!m) return;
   const { l, p, rev } = m;
-  // gewählten Pfad dick hervorheben
+  // highlight the chosen path in bold
   ctx.beginPath();
   let [x, y] = toScreen(...place(p[0], p[1])); ctx.moveTo(x, y);
   for (let i = 2; i < p.length; i += 2) { [x, y] = toScreen(...place(p[i], p[i + 1])); ctx.lineTo(x, y); }
   ctx.strokeStyle = TC.accent; ctx.lineWidth = Math.max(2.5, 0.8 * view.s); ctx.globalAlpha = 1; ctx.stroke();
-  // Startpunkt des Stifts (vorwärts: Pfadanfang, rückwärts: Pfadende)
+  // where the pen starts (forward: path start, reverse: path end)
   const k = rev ? p.length - 2 : 0;
   const [sx, sy] = toScreen(...place(p[k], p[k + 1]));
   ctx.beginPath(); ctx.arc(sx, sy, 9, 0, Math.PI * 2);
@@ -335,7 +335,7 @@ function drawMarker(place) {
   ctx.fillStyle = "#fff"; ctx.fillText(label, sx + 19, sy - 12);
 }
 
-// Pfad unter dem Mauszeiger suchen (nur eingeschaltete Ebenen)
+// find the path under the mouse pointer (enabled layers only)
 function pickPath(sx, sy) {
   const place = makePlacer();
   let best = null, bd = Infinity;
@@ -392,7 +392,7 @@ $("#startPath").onchange = () => {
   setStartSel({ id, path: Math.min(n, l.count) - 1 });
 };
 
-// Maus: Design verschieben / Ansicht verschieben / Zoom
+// mouse: move the design / pan the view / zoom
 let drag = null;
 function overDesign(sx, sy) {
   if (!doc || jobActive()) return false;
@@ -441,7 +441,7 @@ new ResizeObserver(resizeCanvas).observe($("#canvasWrap"));
 $("#btnFit").onclick = fitView;
 $("#showTravel").onchange = scheduleDraw;
 
-// ----------------------------------------------------------- Einstellungen
+// ----------------------------------------------------------- settings
 function bindSettings() {
   $$("[data-set]").forEach((el) => {
     const p = el.dataset.set, v = getPath(S, p);
@@ -463,7 +463,7 @@ function bindSettings() {
       $("#btnProcess").classList.add("primary");
     };
   });
-  // Papier
+  // paper
   const key = `${S.paper.w}x${S.paper.h}`;
   const sel = $("#paper");
   sel.value = [...sel.options].some((o) => o.value === key) ? key : "custom";
@@ -486,16 +486,16 @@ $("#paper").onchange = () => {
   saveSettings({ paper: S.paper }); fitView();
 });
 
-// --------------------------------------------------------------- Platzierung
-// Bezugspunkt (Neuner-Feld): X/Y beziehen sich auf diese Ecke/Mitte des Designs.
-// Intern bleibt S.place.x/y immer die linke obere Ecke.
+// --------------------------------------------------------------- placement
+// reference point (3×3 grid): X/Y refer to this corner/center of the design.
+// internally S.place.x/y is always the top-left corner.
 let anchor = [0, 0];
-try { const a = JSON.parse(localStorage.getItem("anchor")); if (Array.isArray(a) && a.length === 2) anchor = a; } catch (e) { /* egal */ }
+try { const a = JSON.parse(localStorage.getItem("anchor")); if (Array.isArray(a) && a.length === 2) anchor = a; } catch (e) { /* ignore */ }
 function anchorPoint() {
   const [w, h] = doc ? placedSize() : [0, 0];
   return [S.place.x + anchor[0] * w, S.place.y + anchor[1] * h];
 }
-// Änderung an Größe/Drehung so ausführen, dass der Bezugspunkt stehen bleibt
+// apply size/rotation changes so that the reference point stays put
 function keepAnchor(fn) {
   const [ax, ay] = anchorPoint();
   fn();
@@ -507,7 +507,7 @@ function renderAnchor() {
 }
 $$("#anchor button").forEach((b) => b.onclick = () => {
   anchor = b.dataset.a.split(",").map(Number);
-  try { localStorage.setItem("anchor", JSON.stringify(anchor)); } catch (e) { /* egal */ }
+  try { localStorage.setItem("anchor", JSON.stringify(anchor)); } catch (e) { /* ignore */ }
   renderAnchor(); updatePlaceInputs(); scheduleDraw();
 });
 renderAnchor();
@@ -548,7 +548,7 @@ $("#btnOrig").onclick = () => {
 };
 $("#btnFrame").onclick = () => api("/api/frame", { place: S.place });
 
-// --------------------------------------------------------------- Datei
+// --------------------------------------------------------------- file
 $("#btnOpen").onclick = () => $("#file").click();
 $("#file").onchange = () => { if ($("#file").files[0]) uploadFile($("#file").files[0]); $("#file").value = ""; };
 const wrap = $("#canvasWrap");
@@ -577,7 +577,7 @@ async function uploadFile(f) {
   } finally { $("#busy").hidden = true; }
 }
 
-// Standardwerte der Optimierung neben den Feldern anzeigen
+// show the optimization defaults next to the fields
 let DEF = null;
 function showOptDefault(el, k) {
   if (!DEF) return;
@@ -616,14 +616,14 @@ function setDoc(j, resetPlacement) {
   doc = j.doc;
   resumeInfo = j.resume;
   if (!doc) return;
-  // Reihenfolge/Auswahl beibehalten, wenn gleiche Ebenen
+  // keep order/selection when the layers are the same
   const ids = doc.layers.map((l) => l.id);
   if (!resetPlacement && prevOrder.length && prevOrder.every((o) => ids.includes(o.id)) && prevOrder.length === ids.length) order = prevOrder;
   else order = ids.map((id) => ({ id, on: true }));
   if (resumeInfo) {
     S.place = resumeInfo.place;
   } else if (resetPlacement) {
-    // Position aus der Datei übernehmen (Illustrator-Zeichenfläche = Blatt)
+    // take the position from the file (Illustrator artboard = sheet)
     S.place = { x: doc.bbox[0], y: doc.bbox[1], scale: 1, rotate: 0 };
   }
   saveSettings({ place: S.place });
@@ -643,7 +643,7 @@ function setDoc(j, resetPlacement) {
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-// --------------------------------------------------------------- Ebenen
+// --------------------------------------------------------------- layers
 function renderLayers() {
   const box = $("#layers");
   if (!doc) { box.textContent = "–"; $("#totalTime").textContent = ""; return; }
@@ -672,7 +672,7 @@ function renderLayers() {
     up.onclick = () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; renderLayers(); scheduleDraw(); };
     dn.onclick = () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; renderLayers(); scheduleDraw(); };
     box.appendChild(row);
-    // Illustrator-Ebenen innerhalb der Stiftfarbe ein-/ausblenden
+    // show/hide Illustrator layers within the pen color
     (l.subs || []).forEach((sb) => {
       const sr = document.createElement("label");
       sr.className = "sublayer" + (o.on ? "" : " off");
@@ -683,7 +683,7 @@ function renderLayers() {
     });
   });
   $("#totalTime").textContent = `≈ ${fmtTime(total)}`;
-  // Startauswahl
+  // start selection
   const sel = $("#startLayer"), prev = sel.value;
   sel.innerHTML = order.filter((o) => o.on).map((o, i) => `<option value="${i}">${i + 1}. ${esc(doc.layers.find((x) => x.id === o.id).name)}</option>`).join("");
   if (prev && +prev < sel.options.length) sel.value = prev;
@@ -718,8 +718,8 @@ $("#btnStart").onclick = () => {
 };
 $("#btnPause").onclick = () => {
   if (!job) return;
-  if (job.state === "läuft") api("/api/job/pause", {});
-  else if (job.state === "pausiert") api("/api/job/resume", {});
+  if (job.state === "running") api("/api/job/pause", {});
+  else if (job.state === "paused") api("/api/job/resume", {});
 };
 $("#btnStop").onclick = () => { if (jobActive() && confirm("Abort the plot?\n(You can resume from this point later.)")) api("/api/job/stop", {}); };
 $("#btnEstop").onclick = () => { if (jobActive()) api("/api/job/stop", {}); else api("/api/reset", {}); };
@@ -748,15 +748,15 @@ function renderResume() {
 function renderJob() {
   const active = jobActive();
   $("#btnStart").disabled = active || !doc || !connected();
-  $("#btnPause").disabled = !job || !["läuft", "pausiert"].includes(job.state);
-  const paused = !!(job && job.state === "pausiert");
+  $("#btnPause").disabled = !job || !["running", "paused"].includes(job.state);
+  const paused = !!(job && job.state === "paused");
   if ($("#btnPause").dataset.p !== String(paused)) {
     $("#btnPause").dataset.p = String(paused);
     $("#btnPause").innerHTML = paused ? '<svg class="ic"><use href="#i-play"/></svg>Resume' : '<svg class="ic"><use href="#i-pause"/></svg>Pause';
   }
   $("#btnStop").disabled = !active;
   const pc = $("#penChange");
-  if (job && job.state === "stiftwechsel") {
+  if (job && job.state === "pen_change") {
     pc.hidden = false;
     const nl = job.layers[job.layer];
     const html = `${esc(job.message)}<br><small>If you stop now, the plot resumes later at layer ${job.layer + 1}${nl ? ` “${esc(nl.name)}”` : ""}, path 1.</small><button class="primary"><svg class="ic"><use href="#i-play"/></svg>Continue – pen changed</button>`;
@@ -771,23 +771,23 @@ function renderJob() {
     const secs = dl ? layerSeconds(dl) : 0;
     total += l.count; estTotal += secs;
     let d = i < job.layer ? l.count : i === job.layer ? (job.reverse ? l.count - 1 - job.path : job.path) : 0;
-    if (job.state === "fertig") d = l.count;
+    if (job.state === "done") d = l.count;
     done += d; estDone += l.count ? secs * d / l.count : 0;
   });
   const frac = total ? done / total : 0;
   const efrac = estTotal ? estDone / estTotal : frac;
   $("#progBar").style.width = (efrac * 100).toFixed(1) + "%";
   let remain = estTotal - estDone;
-  if (job.elapsed > 60 && efrac > 0.02 && job.state !== "fertig") {
+  if (job.elapsed > 60 && efrac > 0.02 && job.state !== "done") {
     const startFrac = job._startFrac ?? efrac;
     void startFrac;
     remain = remain * 0.5 + (job.elapsed / Math.max(efrac, 0.001)) * (1 - efrac) * 0.5;
   }
   const L = job.layers[Math.min(job.layer, job.layers.length - 1)];
   const parts = [];
-  const stateName = { "läuft": "Plotting", "pausiert": "Paused", "stiftwechsel": "Pen change" }[job.state] || "";
-  if (job.state === "fertig") parts.push(`Done in ${fmtTime(job.elapsed)}`);
-  else if (job.state === "abgebrochen") parts.push(job.message);
+  const stateName = { "running": "Plotting", "paused": "Paused", "pen_change": "Pen change" }[job.state] || "";
+  if (job.state === "done") parts.push(`Done in ${fmtTime(job.elapsed)}`);
+  else if (job.state === "aborted") parts.push(job.message);
   else {
     parts.push(`${stateName} · layer ${job.layer + 1}/${job.layers.length} “${L ? L.name : ""}”`);
     parts.push(`Path ${fmtNum(job.path + 1)}/${fmtNum(L ? L.count : 0)} · ${fmtNum(efrac * 100, 1)} %`);
@@ -796,16 +796,16 @@ function renderJob() {
   if (job.errors) parts.push(`${job.errors} error${job.errors > 1 ? "s" : ""} – see console`);
   $("#progText").innerHTML = parts.map(esc).join("<br>");
   $("#sbJob").textContent = jobActive() ? `${stateName} · ${fmtNum(efrac * 100, 1)} % · ~${fmtTime(remain)} left`
-    : job.state === "fertig" ? `Done in ${fmtTime(job.elapsed)}` : "";
+    : job.state === "done" ? `Done in ${fmtTime(job.elapsed)}` : "";
 }
 
-// --------------------------------------------------------------- Steuerung
+// --------------------------------------------------------------- control
 $$("[data-jog]").forEach((b) => b.onclick = () => {
   const [dx, dy] = b.dataset.jog.split(",").map(Number);
   api("/api/jog", { x: dx * jogStep, y: dy * jogStep });
 });
 $$("[data-zjog]").forEach((b) => b.onclick = () => api("/api/jog", { z: +b.dataset.zjog }));
-// Aktuelle Z-Höhe als Stift oben/unten übernehmen
+// take the current Z height as pen up/down
 function takeZ(key, label) {
   if (!st || !st.connected) return;
   const z = Math.round(st.wpos[2] * 100) / 100;
@@ -826,22 +826,22 @@ function setJogStep(v) {
   jogStep = v;
   $("#jogCustom").value = v;
   $$("#jogStep [data-step]").forEach((x) => x.classList.toggle("on", +x.dataset.step === v));
-  try { localStorage.setItem("jogStep", String(v)); } catch (e) { /* egal */ }
+  try { localStorage.setItem("jogStep", String(v)); } catch (e) { /* ignore */ }
 }
 $$("#jogStep [data-step]").forEach((b) => b.onclick = () => setJogStep(+b.dataset.step));
 $("#jogCustom").onchange = () => setJogStep(parseFloat($("#jogCustom").value));
-try { const v = parseFloat(localStorage.getItem("jogStep")); if (v > 0) setJogStep(v); } catch (e) { /* egal */ }
+try { const v = parseFloat(localStorage.getItem("jogStep")); if (v > 0) setJogStep(v); } catch (e) { /* ignore */ }
 $("#btnPenUp").onclick = () => api("/api/pen", { down: false });
 $("#btnPenDown").onclick = () => api("/api/pen", { down: true });
 $("#btnZero").onclick = async () => {
   const r = await api("/api/zero", {});
-  if (r && r.error && job && job.state === "stiftwechsel") alert(r.error);
+  if (r && r.error && job && job.state === "pen_change") alert(r.error);
 };
 $("#btnGoZero").onclick = () => api("/api/goto_zero", {});
 $("#btnMachineZero").onclick = () => api("/api/goto_machine_zero", {});
 $("#btnUnlock").onclick = () => api("/api/unlock", {});
 
-// Fenster schließen: offene Einstellungen sichern und dem Server Bescheid geben (er beendet sich dann)
+// closing the window: save pending settings and tell the server (it then exits)
 window.addEventListener("pagehide", () => {
   if (saveTimer_active()) {
     clearTimeout(saveTimer);
@@ -854,20 +854,20 @@ window.addEventListener("pagehide", () => {
 window.addEventListener("keydown", (e) => {
   if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
   const map = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-  // frei, wenn kein Plot läuft – oder während des Stiftwechsels
-  const free = !jobActive() || job.state === "stiftwechsel";
+  // enabled when no plot is running – or during a pen change
+  const free = !jobActive() || job.state === "pen_change";
   if (map[e.key] && connected() && free) {
     e.preventDefault(); api("/api/jog", { x: map[e.key][0] * jogStep, y: map[e.key][1] * jogStep });
   } else if (e.key === "PageUp" && free) { e.preventDefault(); api("/api/pen", { down: false }); }
   else if (e.key === "PageDown" && free) { e.preventDefault(); api("/api/pen", { down: true }); }
   else if (e.key === " ") {
     e.preventDefault();
-    if (job && job.state === "läuft") api("/api/job/pause", {});
+    if (job && job.state === "running") api("/api/job/pause", {});
     else if (connected()) api("/api/jog/cancel", {});
   }
 });
 
-// Verbindung
+// connection
 async function loadPorts() {
   const j = await api("/api/ports");
   const sel = $("#port");
@@ -884,7 +884,7 @@ $("#btnConnect").onclick = async () => {
   b.disabled = false;
 };
 
-// Konsole
+// console
 $("#cmdForm").onsubmit = (e) => {
   e.preventDefault();
   const v = $("#cmd").value.trim();
@@ -911,7 +911,7 @@ async function poll() {
     const j = await r.json();
     st = j.machine;
     serverArea = j.area;
-    // Einstellungen, die der Server geändert hat (Firmware-Grenzen), übernehmen
+    // take over settings the server changed (firmware limits)
     if (j.mset && stable(j.mset) !== stable(S.machine) && !saveTimer_active()) {
       S.machine = j.mset; bindSettings(); renderLayers();
     }
@@ -923,7 +923,7 @@ async function poll() {
     renderJob();
     const key = job ? `${job.state}|${job.layer}|${Math.floor(job.path / 50)}` : "";
     if (key !== lastJobKey) { lastJobKey = key; renderLayers(); }
-    if (prevActive && !jobActive() && job && job.state === "abgebrochen" && doc) {
+    if (prevActive && !jobActive() && job && job.state === "aborted" && doc) {
       resumeInfo = { layer_ids: job.layer_ids, layer: job.resume[0], path: job.resume[1], place: S.place, reverse: job.reverse,
         layer_name: job.layers[job.resume[0]] ? job.layers[job.resume[0]].name : "", time: "just now" };
       renderResume();
@@ -955,8 +955,8 @@ function renderStatus() {
   $("#port").disabled = on; $("#baud").disabled = on;
   const ctl = on && !jobActive();
   $$(".panel.left button, #btnFrame, #cmdForm button").forEach((b) => b.disabled = !ctl);
-  // Beim Stiftwechsel: verfahren, Stift hoch/runter, Nullpunkt neu setzen und zum Nullpunkt fahren erlaubt
-  if (on && job && job.state === "stiftwechsel")
+  // during a pen change: jogging, pen up/down, setting the origin and going to the origin are allowed
+  if (on && job && job.state === "pen_change")
     $$("[data-jog], [data-step], #jogCustom, #btnGoZero, #btnPenUp, #btnPenDown, #btnZero, [data-zjog]").forEach((b) => b.disabled = false);
   $("#btnUnlock").disabled = !on;
 }
@@ -975,7 +975,7 @@ function renderStatus() {
   poll();
 })();
 
-// --------------------------------------------------------------- Bereiche in der Größe ändern
+// --------------------------------------------------------------- resizing panels
 (function layoutResize() {
   const DEFAULTS = { lw: 290, rw: 330, ch: 150 };
   const lay = $(".layout");
@@ -991,7 +991,7 @@ function renderStatus() {
       lay.style.setProperty("--" + k, v + "px");
     }
   }
-  function save() { try { localStorage.setItem("layout", JSON.stringify(L)); } catch (e) { /* egal */ } }
+  function save() { try { localStorage.setItem("layout", JSON.stringify(L)); } catch (e) { /* ignore */ } }
   apply();
   window.addEventListener("resize", apply);
   $$(".gutter").forEach((g) => {
@@ -1006,7 +1006,7 @@ function renderStatus() {
       document.body.classList.add("resizing", k === "ch" ? "row" : "col");
       const move = (ev) => {
         const d = (k === "ch" ? ev.clientY : ev.clientX) - start;
-        // linke Leiste wächst nach rechts, rechte Leiste und Konsole wachsen nach links/oben
+        // the left panel grows to the right, the right panel and the console grow to the left/up
         L[k] = from + (k === "lw" ? d : -d);
         apply();
       };

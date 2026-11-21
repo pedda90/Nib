@@ -1,8 +1,8 @@
-"""SVG -> Polylinien in Millimetern.
+"""SVG -> polylines in millimetres.
 
-Liest SVGs aus Illustrator, DrawingBotV3, Inkscape usw. ein,
-wendet alle Transformationen an und rechnet die Einheiten korrekt in mm um.
-Jede Polylinie bekommt ihre Ebene (oberste Gruppe) und ihre Farbe mit.
+Reads SVGs from Illustrator, DrawingBotV3, Inkscape etc.,
+applies all transforms and converts units correctly to mm.
+Every polyline carries its layer (top-level group) and its color.
 """
 from __future__ import annotations
 
@@ -15,15 +15,15 @@ from svgelements import (
 )
 from svgelements import Polyline as Polyline_
 
-PX_TO_MM = 25.4 / 96.0  # svgelements rechnet intern in px bei 96 ppi
+PX_TO_MM = 25.4 / 96.0  # svgelements works in px at 96 ppi internally
 
 
 @dataclass
 class Polyline:
     pts: list            # [(x, y), ...] in mm
-    layer: str           # Name der obersten Gruppe / Ebene
+    layer: str           # name of the top-level group / layer
     color: str           # '#rrggbb'
-    sub: str = ""        # Name der Unterebene (2. Ebene in Illustrator), sonst leer
+    sub: str = ""        # name of the sublayer (2nd level in Illustrator), otherwise empty
 
 
 @dataclass
@@ -56,7 +56,7 @@ def _group_label(g) -> str:
 
 
 def _seg_samples(seg, tol_mm: float) -> int:
-    """Anzahl Stützpunkte für eine Kurve, abhängig von ihrer (geschätzten) Länge."""
+    """Number of points for a curve, depending on its (estimated) length."""
     if isinstance(seg, CubicBezier):
         pts = (seg.start, seg.control1, seg.control2, seg.end)
     elif isinstance(seg, QuadraticBezier):
@@ -71,16 +71,16 @@ def _seg_samples(seg, tol_mm: float) -> int:
     return max(2, min(400, int(math.ceil(length * PX_TO_MM / max(tol_mm, 0.05)))))
 
 
-FLAT_TOL_MM = 0.02  # max. Abweichung der Linien-Näherung von der echten Kurve
+FLAT_TOL_MM = 0.02  # max deviation of the line approximation from the true curve
 
 
 def _flatten_bezier(seg, tol_px):
-    """Bezier-Kurve mit fester Toleranz in Linien zerlegen (ohne Punkt-für-Punkt-Aufrufe)."""
+    """Split a Bezier curve into lines with a fixed tolerance (no point-by-point calls)."""
     if isinstance(seg, QuadraticBezier):
         x0, y0 = seg.start.x, seg.start.y
         x1, y1 = seg.control.x, seg.control.y
         x3, y3 = seg.end.x, seg.end.y
-        # als Kubische darstellen
+        # represent as cubic
         x1, y1, x2, y2 = (x0 + 2 * (x1 - x0) / 3, y0 + 2 * (y1 - y0) / 3,
                           x3 + 2 * (x1 - x3) / 3, y3 + 2 * (y1 - y3) / 3)
     else:
@@ -137,7 +137,7 @@ def _path_to_polylines(path: Path, curve_step_mm: float) -> list:
 
 
 def load_svg(source, curve_step_mm: float = 0.3) -> LoadResult:
-    """source: Dateipfad oder file-like Objekt."""
+    """source: file path or file-like object."""
     res = LoadResult()
     try:
         svg = SVG.parse(source, reify=True, ppi=96.0)
@@ -165,7 +165,7 @@ def load_svg(source, curve_step_mm: float = 0.3) -> LoadResult:
         if vals.get("display") == "none" or vals.get("visibility") == "hidden":
             return
         color = _color_of(shape)
-        # Schneller Weg für einfache Linien (DrawingBot/Illustrator-Schraffuren)
+        # fast path for simple lines (DrawingBot/Illustrator hatching)
         if isinstance(shape, SimpleLine) and shape.transform.is_identity():
             res.polylines.append(Polyline(
                 [(shape.x1 * PX_TO_MM, shape.y1 * PX_TO_MM), (shape.x2 * PX_TO_MM, shape.y2 * PX_TO_MM)],
@@ -185,7 +185,7 @@ def load_svg(source, curve_step_mm: float = 0.3) -> LoadResult:
         for pl in _path_to_polylines(p, curve_step_mm):
             res.polylines.append(Polyline(pl, layer, color, sub))
 
-    # Illustrator verpackt alles in 1-2 Hüllgruppen -> bis zur eigentlichen Ebenen-Ebene absteigen
+    # Illustrator wraps everything in 1-2 container groups -> descend to the actual layer level
     container = svg
     while True:
         kids = [c for c in container if isinstance(c, (Group, Shape))]
@@ -197,7 +197,7 @@ def load_svg(source, curve_step_mm: float = 0.3) -> LoadResult:
     for i, child in enumerate(container):
         if isinstance(child, Group):
             name = _group_label(child) or f"Group {i + 1}"
-            # Unterebenen (Illustrator: Ebene > Unterebene) mit Namen merken
+            # remember sublayers (Illustrator: layer > sublayer) with their names
             for j, sc in enumerate(child):
                 if isinstance(sc, Group):
                     sname = _group_label(sc) or f"{name} – group {j + 1}"

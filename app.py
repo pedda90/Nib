@@ -1,10 +1,10 @@
-"""Nib als eigenes Programmfenster (ohne Browser).
+"""Nib in its own program window (no browser).
 
-Startet den Nib-Server im Hintergrund und zeigt die Oberfläche in einem
-Windows-Fenster (Edge WebView2, ist in Windows 11 eingebaut). Wird das Fenster
-geschlossen, beendet sich Nib. Läuft gerade ein Plot, wird vorher gefragt.
+Starts the Nib server in the background and shows the interface in a
+Windows window (Edge WebView2, built into Windows 11). Closing the window
+quits Nib. If a plot is running, the user is asked first.
 
-Aus dieser Datei baut build_exe.bat die Nib.exe.
+build_exe.bat builds Nib.exe from this file.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import server as S
 
 
 def _log_to_file():
-    """Ohne Konsolenfenster gehen Meldungen in nib.log neben der exe."""
+    """Without a console window, output goes to nib.log next to the exe."""
     if sys.stdout is None or sys.stderr is None:
         f = open(os.path.join(S.DATA, "nib.log"), "a", encoding="utf-8", buffering=1)
         sys.stdout = sys.stdout or f
@@ -28,7 +28,7 @@ def _log_to_file():
 
 
 def _ask(title, text):
-    """Ja/Nein-Abfrage als normales Windows-Meldungsfenster."""
+    """Yes/no question as a normal Windows message box."""
     MB_YESNO, MB_ICONWARNING, MB_DEFBUTTON2, MB_TOPMOST, IDYES = 0x4, 0x30, 0x100, 0x40000, 6
     return ctypes.windll.user32.MessageBoxW(None, text, title,
                                             MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_TOPMOST) == IDYES
@@ -59,7 +59,7 @@ def main():
             if not _ask("Quit Nib?",
                         "A plot is running.\n\nQuit anyway? The plot will be aborted; "
                         "the position is saved so you can resume later."):
-                return False          # Fenster bleibt offen
+                return False          # keep the window open
             try:
                 m = S.APP.settings["machine"]
                 job = S.APP.job
@@ -71,8 +71,14 @@ def main():
 
     win.events.closing += on_closing
 
-    # Browser-Speicher (Fensteraufteilung, Bezugspunkt, Schrittweite) dauerhaft neben der exe
-    storage = os.path.join(S.DATA, "fensterdaten")
+    # browser storage (layout, reference point, step size) kept permanently next to the exe
+    storage = os.path.join(S.DATA, "webview_data")
+    old = os.path.join(S.DATA, "fensterdaten")          # folder name used by older versions
+    if os.path.isdir(old) and not os.path.exists(storage):
+        try:
+            os.rename(old, storage)
+        except OSError:
+            storage = old
     try:
         webview.start(private_mode=False, storage_path=storage, gui="edgechromium")
     finally:

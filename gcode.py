@@ -1,7 +1,7 @@
-"""Platzierung (Design -> Blatt -> Maschine) und G-Code-Erzeugung.
+"""Placement (design -> sheet -> machine) and G-code generation.
 
-Die Platzierungs-Mathematik ist identisch in web/app.js (placePoint) umgesetzt,
-damit Vorschau und Plot exakt übereinstimmen.
+The placement math is implemented identically in web/app.js (placePoint)
+so that preview and plot match exactly.
 """
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ import math
 
 
 def make_placer(bbox, place):
-    """bbox = [minx, miny, maxx, maxy] des Designs (mm).
-    place = {x, y, scale, rotate(0/90/180/270)}: obere linke Ecke des
-    gedrehten+skalierten Designs liegt bei (x, y) auf dem Blatt."""
+    """bbox = [minx, miny, maxx, maxy] of the design (mm).
+    place = {x, y, scale, rotate(0/90/180/270)}: the top-left corner of the
+    rotated+scaled design sits at (x, y) on the sheet."""
     minx, miny, maxx, maxy = bbox
     w, h = maxx - minx, maxy - miny
     s = float(place.get("scale", 1.0))
@@ -40,7 +40,7 @@ def placed_size(bbox, place):
 
 
 def to_machine(x, y, m):
-    """Blattkoordinaten (Ursprung links oben, y nach unten) -> Maschine."""
+    """Sheet coordinates (origin top left, y pointing down) -> machine."""
     if m.get("swap_xy"):
         x, y = y, x
     if m.get("invert_x"):
@@ -51,7 +51,7 @@ def to_machine(x, y, m):
 
 
 def from_machine(x, y, m):
-    """Umkehrung von to_machine()."""
+    """Inverse of to_machine()."""
     if m.get("invert_x"):
         x = -x
     if m.get("invert_y"):
@@ -67,7 +67,7 @@ def _fmt(v):
 
 
 class GcodeBuilder:
-    """Erzeugt (zeile, tag) Paare. tag = (ebenen_index, pfad_index) für Fortschritt/Fortsetzen."""
+    """Yields (line, tag) pairs. tag = (layer_index, path_index) for progress/resume."""
 
     def __init__(self, m):
         self.m = m
@@ -94,9 +94,9 @@ class GcodeBuilder:
         self.pen_up()
 
     def layer(self, li, paths, placer, start_path=None, reverse=False):
-        """Pfade einer Ebene. Vorwärts: start_path..Ende. Rückwärts: start_path..0, jeder
-        Pfad in Gegenrichtung (genau die umgekehrte Fahrt). tag enthält immer den
-        Original-Index, damit Fortschritt und Fortsetzen in beiden Richtungen passen."""
+        """Paths of one layer. Forward: start_path..end. Reverse: start_path..0, each
+        path in the opposite direction (exactly the reversed move). tag always holds the
+        original index so progress and resume work in both directions."""
         m = self.m
         fd, ft = int(m["feed_draw"]), int(m["feed_travel"])
         n = len(paths)
@@ -128,7 +128,7 @@ class GcodeBuilder:
 
 
 def frame_gcode(bbox, place, m):
-    """Rahmen des platzierten Designs mit angehobenem Stift abfahren."""
+    """Trace the frame of the placed design with the pen raised."""
     w, h = placed_size(bbox, place)
     x, y = float(place.get("x", 0)), float(place.get("y", 0))
     b = GcodeBuilder(m)
@@ -141,7 +141,7 @@ def frame_gcode(bbox, place, m):
 
 
 def estimate_seconds(layer_stats, scale, m):
-    """Grobe Zeitschätzung inkl. Beschleunigungszuschlag."""
+    """Rough time estimate including an acceleration allowance."""
     fd = max(float(m["feed_draw"]), 1) / 60.0
     ft = max(float(m["feed_travel"]), 1) / 60.0
     zf = max(float(m["z_feed"]), 1) / 60.0

@@ -1,6 +1,6 @@
-"""Nib – lokaler Webserver für den GRBL-Stiftplotter.
+"""Nib – local web server for the GRBL pen plotter.
 
-Start:  python server.py           (öffnet den Browser auf http://127.0.0.1:8765)
+Start:  python server.py           (opens the browser at http://127.0.0.1:8765)
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from svgload import load_svg
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, "frozen", False):
-    # als Nib.exe: Oberfläche steckt in der exe, Einstellungen liegen neben der exe
+    # as Nib.exe: the interface is inside the exe, settings live next to the exe
     RES = getattr(sys, "_MEIPASS", HERE)
     DATA = os.path.dirname(os.path.abspath(sys.executable))
 else:
@@ -79,12 +79,12 @@ def save_json(path, data):
 
 
 def allowed_area(m, machine=None, wco_xy=None):
-    """Erlaubter Bereich in Blattkoordinaten (x0, y0, x1, y1), gemessen ab dem Nullpunkt.
+    """Allowed area in sheet coordinates (x0, y0, x1, y1), measured from the origin.
 
-    Sind die Firmware-Grenzen des Plotters bekannt ($130/$131 bei $20=1), gelten nur diese.
-    Ohne Referenzfahrt zählen sie ab der Einschaltposition (Maschinenkoordinate 0..max) und
-    werden über den Nullpunkt-Versatz (WCO) umgerechnet – der Nullpunkt darf also überall liegen.
-    Sonst (z. B. Simulator, Achsen gedreht): 0..max_x / 0..max_y ab Nullpunkt.
+    If the plotter's firmware limits are known ($130/$131 with $20=1), only those apply.
+    Without homing they count from the power-on position (machine coordinate 0..max) and
+    are converted via the origin offset (WCO) – so the origin may be anywhere.
+    Otherwise (e.g. simulator, swapped axes): 0..max_x / 0..max_y from the origin.
     """
     ux, uy = float(m["max_x"]), float(m["max_y"])
     if machine is not None and machine.connected and not (
@@ -92,9 +92,9 @@ def allowed_area(m, machine=None, wco_xy=None):
         st = machine.status()
         wco = st.get("wco")
         if wco:
-            # Arbeitsbereich (Einstellung) gilt ab Maschinen-Nullpunkt = Einschaltecke,
-            # zusätzlich zur Firmware-Grenze – der kleinere Wert gewinnt.
-            # (Die Firmware-Grenze 297 mm ist größer als der echte Y-Weg -> Anschlag.)
+            # the work area (setting) counts from machine home = power-on corner,
+            # in addition to the firmware limit – the smaller value wins.
+            # (the firmware limit of 297 mm is larger than the real Y travel -> carriage hits the end.)
             fx, fy = st.get("fw_max") or (None, None)
             mx = min(ux, fx) if (st.get("fw_soft_limits") and fx) else ux
             my = min(uy, fy) if (st.get("fw_soft_limits") and fy) else uy
@@ -107,14 +107,14 @@ SPEED_NAMES = {"feed_draw": "Drawing", "feed_travel": "Travel", "jog_feed": "Jog
 
 
 def speed_limits(fw):
-    """(max. X/Y, max. Z) in mm/min aus $110/$111/$112, oder (None, None)."""
+    """(max X/Y, max Z) in mm/min from $110/$111/$112, or (None, None)."""
     if not fw or not (fw.get(110) and fw.get(111)):
         return None, None
     return min(fw[110], fw[111]), fw.get(112)
 
 
 def clamp_speeds(m, fw):
-    """Geschwindigkeiten auf das Firmware-Maximum begrenzen. Gibt geänderte Felder zurück."""
+    """Cap speeds at the firmware maximum. Returns the changed fields."""
     vxy, vz = speed_limits(fw)
     changed = []
     if not vxy:
@@ -128,7 +128,7 @@ def clamp_speeds(m, fw):
 
 
 def check_limits(bbox, place, m, machine=None, wco_xy=None):
-    """Fehlermeldung, wenn das platzierte Design den erlaubten Bereich verlässt, sonst None."""
+    """Error message if the placed design leaves the allowed area, otherwise None."""
     if not m.get("limits_on", True):
         return None
     w, h = G.placed_size(bbox, place)
@@ -143,7 +143,7 @@ def check_limits(bbox, place, m, machine=None, wco_xy=None):
 
 
 def _color_name(hexcol, names):
-    """Farbebene benennen, z. B. 'hatch Y' -> 'Y (#f5d000)'."""
+    """Name a color layer, e.g. 'hatch Y' -> 'Y (#f5d000)'."""
     top = sorted(names.items(), key=lambda kv: -kv[1])
     if top and top[0][0] not in ("No layer",) and not top[0][0].startswith("Group "):
         label = top[0][0]
@@ -162,17 +162,17 @@ class App:
         self.raw = None           # LoadResult
         self.file_name = ""
         self.file_hash = ""
-        self.doc = None           # verarbeitete Ebenen
+        self.doc = None           # processed layers
         self.doc_lock = threading.Lock()
-        self.hidden = set()       # ausgeblendete Unterebenen "L<i>/<name>"
-        self._opt_cache = {}      # (Modus, Ebene, Optionen) -> [(Unterebene, Pfad)], alle Unterebenen gemeinsam
+        self.hidden = set()       # hidden sublayers "L<i>/<name>"
+        self._opt_cache = {}      # (mode, layer, options) -> [(sublayer, path)], all sublayers together
         self._last_save = 0.0
 
     def _fw_received(self, fw):
-        """Arbeitsbereich aus der Plotter-Firmware übernehmen ($130/$131)."""
+        """Take the work area from the plotter firmware ($130/$131)."""
         fx, fy = fw.get(130), fw.get(131)
         m = self.settings["machine"]
-        # Nur verkleinern: ein selbst gemessener (kleinerer) Arbeitsbereich bleibt erhalten.
+        # only shrink: a smaller, self-measured work area is kept.
         nx, ny = min(m["max_x"], fx), min(m["max_y"], fy)
         if (m["max_x"], m["max_y"]) != (nx, ny):
             m["max_x"], m["max_y"] = nx, ny
@@ -188,7 +188,7 @@ class App:
             self.save_settings()
             self.machine._log("warn", "Capped at firmware maximum: " + ", ".join(changed))
 
-    # ------------------------------------------------------------ Dokument
+    # ------------------------------------------------------------ document
     def upload(self, name, data: bytes):
         res = load_svg(io.BytesIO(data), float(self.settings["optimize"]["curve_step"]))
         with self.doc_lock:
@@ -219,15 +219,15 @@ class App:
         order = []
         for p in polys:
             key = p.layer if mode == "layer" else (p.color if mode == "color" else "Alle")
-            # Unterebene: Illustrator-Unterebene, sonst bei Farb-Ebenen die Illustrator-Ebene,
-            # bei Illustrator-Ebenen die Farbe
+            # sublayer: Illustrator sublayer; for color layers the Illustrator layer,
+            # for Illustrator layers the color
             sub = getattr(p, "sub", "") or (p.color if mode == "layer" else p.layer)
             if key not in groups:
                 groups[key] = {"paths": [], "colors": {}, "subs": {}, "names": {}}
                 order.append(key)
             gi = order.index(key)
             groups[key]["subs"][sub] = groups[key]["subs"].get(sub, 0) + 1
-            # alle Pfade (auch ausgeblendete) gehen in die gemeinsame Optimierung
+            # all paths (hidden ones too) go into the joint optimization
             groups[key]["paths"].append(p.pts)
             groups[key].setdefault("tags", []).append(sub)
             if f"L{gi}/{sub}" in self.hidden:
@@ -250,8 +250,8 @@ class App:
             lid = f"L{i}"
             visible = tuple(s for s in g["subs"] if f"{lid}/{s}" not in self.hidden)
             start = (bbox[0], bbox[1])
-            # Einmal mit ALLEN Unterebenen gemeinsam optimieren (unabhängig vom Ausblenden);
-            # Ausblenden filtert danach nur – die Reihenfolge der übrigen bleibt gleich.
+            # optimize once with ALL sublayers together (independent of hiding);
+            # hiding only filters afterwards – the order of the rest stays the same.
             ck = (mode, key, okey)
             tagged = self._opt_cache.get(ck)
             if tagged is None:
@@ -268,7 +268,7 @@ class App:
             subs = ([{"name": s, "count": n, "hidden": f"{lid}/{s}" in self.hidden} for s, n in g["subs"].items()]
                     if len(g["subs"]) > 1 else [])
             names = g["names"] or {s: 1 for s in g["subs"]}
-            if len(g.get("full", ())) == 1:          # genau eine Illustrator-Ebene -> vollen Namen zeigen
+            if len(g.get("full", ())) == 1:          # exactly one Illustrator layer -> show its full name
                 names = {next(iter(g["full"])): 1}
             layers.append({
                 "id": lid, "name": str(key) if mode != "color" else _color_name(key, names),
@@ -297,7 +297,7 @@ class App:
         return {"doc": {k: v for k, v in d.items() if k != "layers"} | {"layers": layers},
                 "took": round(took, 2), "resume": self.resume_info()}
 
-    # ---------------------------------------------------------- Einstellungen
+    # ---------------------------------------------------------- settings
     def save_settings(self):
         try:
             save_json(SETTINGS_FILE, self.settings)
@@ -306,7 +306,7 @@ class App:
 
     @staticmethod
     def path_key(p):
-        """Erkennungsmerkmal einer Linie: Anfang, Ende, Punktzahl (unabhängig von ihrer Nummer)."""
+        """Fingerprint of a line: start, end, point count (independent of its number)."""
         r = lambda v: round(v, 2)
         return [r(p[0][0]), r(p[0][1]), r(p[-1][0]), r(p[-1][1]), len(p)]
 
@@ -317,7 +317,7 @@ class App:
         if st.get("hash") != self.doc["hash"]:
             return None
         if "path_key" not in st:
-            # alter Stand ohne Merkmal: nur bei exakt gleichen Einstellungen
+            # old state without fingerprint: only with exactly the same settings
             return st if st.get("opts") == self.doc["opts"] else None
         strip = lambda o: {k: v for k, v in (o or {}).items() if k != "hidden"}
         if strip(st.get("opts")) != strip(self.doc["opts"]):
@@ -330,7 +330,7 @@ class App:
         key = st["path_key"]
         hit = next((i for i, p in enumerate(paths) if p and self.path_key(p) == key), None)
         if hit is None:
-            return None          # Linie ist (z. B. ausgeblendet) nicht mehr vorhanden
+            return None          # the line no longer exists (e.g. hidden)
         out = dict(st)
         out["moved"] = hit != st.get("path")
         out["path"] = hit
@@ -362,7 +362,7 @@ class App:
 
     # ------------------------------------------------------------------ Job
     def start_job(self, body):
-        if self.job and self.job.state in ("läuft", "pausiert", "stiftwechsel"):
+        if self.job and self.job.state in ("running", "paused", "pen_change"):
             return {"error": "A plot is already running"}
         if not self.machine.connected:
             return {"error": "Plotter not connected"}
@@ -400,7 +400,7 @@ class App:
 
         def change_moves():
             b = G.GcodeBuilder(m)
-            b.footer(True)          # Stift hoch, zum Nullpunkt
+            b.footer(True)          # pen up, go to origin
             return b.lines
 
         sl = int(body.get("start_layer", 0))
@@ -410,7 +410,7 @@ class App:
                 for l in layers]
         job = Job(self.machine, meta, build_layer, header, footer, sl, sp,
                   pen_change=bool(self.settings["job"]["pen_change"]),
-                  # ohne bestätigte Linien (Start, Stiftwechsel) sofort speichern
+                  # save immediately when there are no confirmed lines (start, pen change)
                   on_progress=lambda j: self.save_progress(j, force=not j.recent),
                   change_moves=change_moves)
         job.layer_ids = ids
@@ -427,9 +427,9 @@ class App:
         return {"ok": True}
 
     def _watch_job(self, job):
-        while job.state in ("läuft", "pausiert", "stiftwechsel"):
+        while job.state in ("running", "paused", "pen_change"):
             time.sleep(0.5)
-        self.save_progress(job, force=True, finished=(job.state == "fertig"))
+        self.save_progress(job, force=True, finished=(job.state == "done"))
 
     def job_info(self):
         if not self.job:
@@ -443,10 +443,10 @@ class App:
 
 APP = App()
 
-# Lebenszeichen der Browser-Seite: Wird das letzte Fenster geschlossen, beendet sich Nib.
+# heartbeat of the browser page: when the last window closes, Nib exits.
 LIFE = {"last_poll": 0.0, "bye_at": 0.0, "seen": False}
-BYE_GRACE = 5        # s nach dem Schließen (Neuladen der Seite meldet sich vorher wieder)
-NO_POLL_LIMIT = 180  # s ohne Lebenszeichen (Absturz; Hintergrund-Tabs fragen nur selten ab)
+BYE_GRACE = 5        # s after closing (reloading the page checks in again before that)
+NO_POLL_LIMIT = 180  # s without a heartbeat (crash; background tabs poll only rarely)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -528,7 +528,7 @@ class Handler(BaseHTTPRequestHandler):
         M = APP.machine
         S = APP.settings
         mset = S["machine"]
-        busy = APP.job and APP.job.state in ("läuft", "pausiert", "stiftwechsel")
+        busy = APP.job and APP.job.state in ("running", "paused", "pen_change")
 
         if path == "/api/bye":
             LIFE["bye_at"] = time.time()
@@ -558,7 +558,7 @@ class Handler(BaseHTTPRequestHandler):
         if not M.connected:
             return {"error": "Plotter not connected"}
 
-        # Echtzeit-Befehle gehen immer
+        # real-time commands always work
         if path == "/api/feedhold":
             M.realtime(b"!")
             return {"ok": True}
@@ -578,8 +578,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/job/start":
             return APP.start_job(b)
 
-        # Beim Stiftwechsel darf verfahren, der Stift bewegt und der Nullpunkt neu gesetzt werden
-        changing = APP.job and APP.job.state == "stiftwechsel"
+        # during a pen change, jogging, moving the pen and resetting the origin are allowed
+        changing = APP.job and APP.job.state == "pen_change"
         if busy and not (changing and path in (
                 "/api/jog", "/api/jog/cancel", "/api/pen", "/api/zero", "/api/goto_zero")):
             return {"error": "Not possible while plotting"}
@@ -592,11 +592,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/jog":
             dx, dy = float(b.get("x", 0)), float(b.get("y", 0))
             if mset.get("limits_on", True) and (dx or dy):
-                # aktuelle Position in Blattkoordinaten, Ziel auf Arbeitsbereich begrenzen
+                # current position in sheet coordinates, clamp the target to the work area
                 wx, wy = M.status()["wpos"][:2]
                 cx, cy = G.from_machine(wx, wy, mset)
                 ax0, ay0, ax1, ay1 = allowed_area(mset, M)
-                # Wenn man schon außerhalb steht, nur Bewegung zurück in den Bereich zulassen
+                # if already outside, only allow moves back into the area
                 tx = min(max(cx + dx, min(ax0, cx)), max(ax1, cx))
                 ty = min(max(cy + dy, min(ay0, cy)), max(ay1, cy))
                 if abs(tx - (cx + dx)) > 1e-6 or abs(ty - (cy + dy)) > 1e-6:
@@ -635,7 +635,7 @@ class Handler(BaseHTTPRequestHandler):
             return {"ok": True}
         if path == "/api/zero":
             if changing and mset.get("limits_on", True):
-                # Plot muss auch mit dem neuen Nullpunkt in den Arbeitsbereich passen
+                # the plot must still fit the work area with the new origin
                 st = M.status()
                 err = check_limits(APP.doc["bbox"], APP.job.place, mset, M, wco_xy=st["mpos"][:2])
                 if err:
@@ -646,21 +646,21 @@ class Handler(BaseHTTPRequestHandler):
             M.zero_set = True
             return {"ok": True}
         if path in ("/api/goto_zero", "/api/goto_machine_zero"):
-            # Stift anheben (eingestellte Höhe, falls gültig, sonst ganz nach oben)
+            # raise the pen (configured height if valid, otherwise all the way up)
             lift = (f"G90 G1 Z{mset['z_up']} F{int(mset['z_feed'])}" if M.z_check(mset["z_up"]) is None
                     else f"G90 G53 G1 Z0 F{int(mset['z_feed'])}")
             if path == "/api/goto_zero":
                 move = f"G1 X0 Y0 F{int(mset['feed_travel'])}"
             else:
-                # G53 = Maschinenkoordinaten -> Einschaltposition, Nullpunkt bleibt unverändert
+                # G53 = machine coordinates -> power-on position, the origin stays unchanged
                 move = f"G53 G1 X0 Y0 F{int(mset['feed_travel'])}"
                 M._log("info", "Moving to machine home (power-on position)")
             M.queue_lines([lift, move], None)
             return {"ok": True}
         if path == "/api/unlock":
             if M.state.startswith("Alarm"):
-                # Diese Firmware verlangt nach einem Alarm einen Reset ("Reset to continue").
-                # Nullpunkt bleibt dabei erhalten.
+                # this firmware requires a reset after an alarm ("Reset to continue").
+                # the origin is kept.
                 M._log("info", "Clearing alarm (reset, origin is kept)…")
                 M.soft_reset_keep_origin(mset["z_up"], mset["z_feed"])
             else:
@@ -680,11 +680,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _job_busy():
-    return bool(APP.job and APP.job.state in ("läuft", "pausiert", "stiftwechsel"))
+    return bool(APP.job and APP.job.state in ("running", "paused", "pen_change"))
 
 
 def watchdog(srv):
-    """Beendet den Server, wenn kein Browserfenster mehr offen ist – nie während eines Plots."""
+    """Shuts the server down when no browser window is open any more – never during a plot."""
     told = False
     while True:
         time.sleep(1)
@@ -703,8 +703,8 @@ def watchdog(srv):
 
 
 class _Server(ThreadingHTTPServer):
-    # Port exklusiv belegen: Unter Windows erlaubt SO_REUSEADDR sonst, dass sich ein zweites
-    # Nib auf denselben Port setzt – Anfragen landen dann beim falschen Programm.
+    # bind the port exclusively: on Windows SO_REUSEADDR would otherwise let a second
+    # Nib bind the same port – requests then end up at the wrong program.
     allow_reuse_address = False
 
     def server_bind(self):
@@ -715,7 +715,7 @@ class _Server(ThreadingHTTPServer):
 
 
 def make_server(port=PORT, fallback=False):
-    """HTTP-Server erzeugen. Mit fallback=True wird ein freier Port genommen, falls belegt."""
+    """Create the HTTP server. With fallback=True a free port is used if the port is taken."""
     try:
         return _Server(("127.0.0.1", port), Handler)
     except OSError:
