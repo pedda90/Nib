@@ -358,6 +358,11 @@ class App:
 
 APP = App()
 
+# Lebenszeichen der Browser-Seite: Wird das letzte Fenster geschlossen, beendet sich Nib.
+LIFE = {"last_poll": 0.0, "bye_at": 0.0, "seen": False}
+BYE_GRACE = 5        # s nach dem Schließen (Neuladen der Seite meldet sich vorher wieder)
+NO_POLL_LIMIT = 180  # s ohne Lebenszeichen (Absturz; Hintergrund-Tabs fragen nur selten ab)
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "Nib/1.0"
@@ -382,6 +387,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             if path == "/api/status":
+                LIFE["last_poll"], LIFE["seen"] = time.time(), True
                 q = urlparse(self.path).query
                 since = int(q.split("log=")[1]) if "log=" in q else 0
                 return self._json({"machine": APP.machine.status(), "job": APP.job_info(),
@@ -437,6 +443,9 @@ class Handler(BaseHTTPRequestHandler):
         mset = S["machine"]
         busy = APP.job and APP.job.state in ("läuft", "pausiert", "stiftwechsel")
 
+        if path == "/api/bye":
+            LIFE["bye_at"] = time.time()
+            return {"ok": True}
         if path == "/api/settings":
             APP.settings = deep_merge(S, b)
             changed = clamp_speeds(APP.settings["machine"], M.fw)
@@ -597,6 +606,29 @@ class Handler(BaseHTTPRequestHandler):
         return {"error": f"Unbekannter Befehl {path}"}
 
 
+def _job_busy():
+    return bool(APP.job and APP.job.state in ("läuft", "pausiert", "stiftwechsel"))
+
+
+def watchdog(srv):
+    """Beendet den Server, wenn kein Browserfenster mehr offen ist – nie während eines Plots."""
+    told = False
+    while True:
+        time.sleep(1)
+        if _job_busy():
+            if LIFE["bye_at"] and LIFE["last_poll"] < LIFE["bye_at"] and not told:
+                print("Browser geschlossen – Plot läuft weiter, Nib beendet sich danach.")
+                told = True
+            continue
+        now = time.time()
+        closed = LIFE["bye_at"] and LIFE["last_poll"] < LIFE["bye_at"] and now - LIFE["bye_at"] > BYE_GRACE
+        lost = LIFE["seen"] and now - LIFE["last_poll"] > NO_POLL_LIMIT
+        if closed or lost:
+            print("Browser geschlossen – Nib wird beendet.")
+            srv.shutdown()
+            return
+
+
 def main():
     no_browser = "--no-browser" in sys.argv
     port = PORT
@@ -607,6 +639,8 @@ def main():
     print(f"Nib läuft auf {url}  (Beenden mit Strg+C)")
     if not no_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    if "--keep-running" not in sys.argv:
+        threading.Thread(target=watchdog, args=(srv,), daemon=True).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

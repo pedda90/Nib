@@ -670,6 +670,16 @@ $("#btnZero").onclick = () => api("/api/zero", {});
 $("#btnGoZero").onclick = () => api("/api/goto_zero", {});
 $("#btnMachineZero").onclick = () => api("/api/goto_machine_zero", {});
 $("#btnUnlock").onclick = () => api("/api/unlock", {});
+
+// Fenster schließen: offene Einstellungen sichern und dem Server Bescheid geben (er beendet sich dann)
+window.addEventListener("pagehide", () => {
+  if (saveTimer_active()) {
+    clearTimeout(saveTimer);
+    navigator.sendBeacon("/api/settings", new Blob([JSON.stringify(pendingSave)], { type: "application/json" }));
+    pendingSave = {};
+  }
+  navigator.sendBeacon("/api/bye", new Blob(["{}"], { type: "application/json" }));
+});
 $("#btnAreaOpen").onclick = () => {
   if (confirm("Grenzen auf das Firmware-Maximum öffnen?\nDanach nur in kleinen Schritten (1 mm) zum Anschlag joggen und die Grenze mit „Pos. → Max.“ wieder setzen."))
     api("/api/area_open", {});

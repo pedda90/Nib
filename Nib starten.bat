@@ -6,4 +6,4 @@ if not exist ".venv\Scripts\python.exe" (
   ".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r requirements.txt || (pause & exit /b 1)
 )
 ".venv\Scripts\python.exe" server.py
-pause
+if errorlevel 1 pause

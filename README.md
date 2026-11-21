@@ -6,7 +6,10 @@ Eigene Steuer-Software für den UUNATeK-3.0-Stiftplotter (GRBL über USB/CH340).
 
 ## Starten
 Doppelklick auf **`Nib starten.bat`**. Der Browser öffnet sich auf http://127.0.0.1:8765.
-Das schwarze Fenster offen lassen. Wird es geschlossen, beendet sich Nib.
+**Beenden:** Einfach das Browserfenster bzw. den Tab schließen. Nib beendet sich nach wenigen
+Sekunden selbst, das schwarze Fenster schließt sich mit. Läuft gerade ein Plot (auch pausiert oder beim
+Stiftwechsel), wird er zu Ende geführt und Nib beendet sich erst danach. Zurück zur Oberfläche
+geht es dann über http://127.0.0.1:8765. Zum Entwickeln lässt sich das mit `server.py --keep-running` abschalten.
 
 **Wichtig:** Vorher die UUNA-Software schließen. Es kann immer nur ein Programm COM3 benutzen.
 
