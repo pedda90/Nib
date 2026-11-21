@@ -23,6 +23,7 @@ class Polyline:
     pts: list            # [(x, y), ...] in mm
     layer: str           # Name der obersten Gruppe / Ebene
     color: str           # '#rrggbb'
+    sub: str = ""        # Name der Unterebene (2. Ebene in Illustrator), sonst leer
 
 
 @dataclass
@@ -150,7 +151,7 @@ def load_svg(source, curve_step_mm: float = 0.3) -> LoadResult:
 
     skipped_text = skipped_img = 0
 
-    def handle(shape, layer):
+    def handle(shape, layer, sub=""):
         nonlocal skipped_text, skipped_img
         if isinstance(shape, SVGText):
             skipped_text += 1
@@ -168,21 +169,21 @@ def load_svg(source, curve_step_mm: float = 0.3) -> LoadResult:
         if isinstance(shape, SimpleLine) and shape.transform.is_identity():
             res.polylines.append(Polyline(
                 [(shape.x1 * PX_TO_MM, shape.y1 * PX_TO_MM), (shape.x2 * PX_TO_MM, shape.y2 * PX_TO_MM)],
-                layer, color))
+                layer, color, sub))
             return
         if isinstance(shape, (Polyline_, Polygon)) and shape.transform.is_identity():
             pts = [(p.x * PX_TO_MM, p.y * PX_TO_MM) for p in shape.points]
             if isinstance(shape, Polygon) and pts:
                 pts.append(pts[0])
             if len(pts) > 1:
-                res.polylines.append(Polyline(pts, layer, color))
+                res.polylines.append(Polyline(pts, layer, color, sub))
             return
         try:
             p = abs(Path(shape))
         except Exception:
             return
         for pl in _path_to_polylines(p, curve_step_mm):
-            res.polylines.append(Polyline(pl, layer, color))
+            res.polylines.append(Polyline(pl, layer, color, sub))
 
     # Illustrator verpackt alles in 1-2 Hüllgruppen -> bis zur eigentlichen Ebenen-Ebene absteigen
     container = svg
@@ -196,10 +197,15 @@ def load_svg(source, curve_step_mm: float = 0.3) -> LoadResult:
     for i, child in enumerate(container):
         if isinstance(child, Group):
             name = _group_label(child) or f"Gruppe {i + 1}"
-            for el in child.select():
-                if el is child:
-                    continue
-                handle(el, name)
+            # Unterebenen (Illustrator: Ebene > Unterebene) mit Namen merken
+            for j, sc in enumerate(child):
+                if isinstance(sc, Group):
+                    sname = _group_label(sc) or f"{name} – Gruppe {j + 1}"
+                    for el in sc.select():
+                        if el is not sc:
+                            handle(el, name, sname)
+                else:
+                    handle(sc, name)
         else:
             handle(child, "Ohne Ebene")
 

@@ -213,8 +213,9 @@ class App:
         order = []
         for p in polys:
             key = p.layer if mode == "layer" else (p.color if mode == "color" else "Alle")
-            # Unterebene: bei Farb-Ebenen die Illustrator-Ebene, bei Illustrator-Ebenen die Farbe
-            sub = p.color if mode == "layer" else p.layer
+            # Unterebene: Illustrator-Unterebene, sonst bei Farb-Ebenen die Illustrator-Ebene,
+            # bei Illustrator-Ebenen die Farbe
+            sub = getattr(p, "sub", "") or (p.color if mode == "layer" else p.layer)
             if key not in groups:
                 groups[key] = {"paths": [], "colors": {}, "subs": {}, "names": {}}
                 order.append(key)
@@ -227,6 +228,7 @@ class App:
             groups[key].setdefault("names", {})
             nm = p.layer.rstrip("0123456789 ").strip() or p.layer
             groups[key]["names"][nm] = groups[key]["names"].get(nm, 0) + 1
+            groups[key].setdefault("full", set()).add(p.layer)
 
         allx = [x for p in polys for x, _ in p.pts] or [0]
         ally = [y for p in polys for _, y in p.pts] or [0]
@@ -253,8 +255,11 @@ class App:
                      else (key if mode == "color" else "#000000"))
             subs = ([{"name": s, "count": n, "hidden": f"{lid}/{s}" in self.hidden} for s, n in g["subs"].items()]
                     if len(g["subs"]) > 1 else [])
+            names = g["names"] or {s: 1 for s in g["subs"]}
+            if len(g.get("full", ())) == 1:          # genau eine Illustrator-Ebene -> vollen Namen zeigen
+                names = {next(iter(g["full"])): 1}
             layers.append({
-                "id": lid, "name": str(key) if mode != "color" else _color_name(key, g["names"] or {s: 1 for s in g["subs"]}),
+                "id": lid, "name": str(key) if mode != "color" else _color_name(key, names),
                 "color": color, "count": len(paths), "points": sum(len(p) for p in paths),
                 "paths": paths, "subs": subs, **st,
             })
