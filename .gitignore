@@ -10,3 +10,6 @@ job_state.json
 # Lokal
 .claude/
 plotter/
+
+# Diagnose
+verbindung_diagnose.log

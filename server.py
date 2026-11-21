@@ -224,6 +224,7 @@ class App:
             if f"L{gi}/{sub}" in self.hidden:
                 continue
             groups[key]["paths"].append(p.pts)
+            groups[key].setdefault("by_sub", {}).setdefault(sub, []).append(p.pts)
             groups[key]["colors"][p.color] = groups[key]["colors"].get(p.color, 0) + 1
             groups[key].setdefault("names", {})
             nm = p.layer.rstrip("0123456789 ").strip() or p.layer
@@ -241,12 +242,22 @@ class App:
             g = groups[key]
             lid = f"L{i}"
             visible = tuple(s for s in g["subs"] if f"{lid}/{s}" not in self.hidden)
-            ck = (mode, key, visible, okey)
-            if ck in self._opt_cache:
-                paths = self._opt_cache[ck]
+            start = (bbox[0], bbox[1])
+            if len(g["subs"]) > 1:
+                paths = []
+                for s in visible:
+                    ck = (mode, key, s, okey)
+                    part = self._opt_cache.get(ck)
+                    if part is None:
+                        part = O.optimize(g.get("by_sub", {}).get(s, []), opts, start=start)
+                    cache[ck] = part
+                    paths = paths + part
             else:
-                paths = O.optimize(g["paths"], opts, start=(bbox[0], bbox[1])) if g["paths"] else []
-            cache[ck] = paths
+                ck = (mode, key, None, okey)
+                paths = self._opt_cache.get(ck)
+                if paths is None:
+                    paths = O.optimize(g["paths"], opts, start=start) if g["paths"] else []
+                cache[ck] = paths
             hidden_here = len(visible) < len(g["subs"])
             if not paths and not hidden_here:
                 continue
@@ -292,23 +303,54 @@ class App:
         except Exception:
             traceback.print_exc()
 
+    @staticmethod
+    def path_key(p):
+        """Erkennungsmerkmal einer Linie: Anfang, Ende, Punktzahl (unabhängig von ihrer Nummer)."""
+        r = lambda v: round(v, 2)
+        return [r(p[0][0]), r(p[0][1]), r(p[-1][0]), r(p[-1][1]), len(p)]
+
     def resume_info(self):
         st = load_json(JOBSTATE_FILE, None)
-        if not st or not self.doc:
+        if not st or not self.doc or st.get("finished"):
             return None
-        if st.get("hash") != self.doc["hash"] or st.get("opts") != self.doc["opts"]:
+        if st.get("hash") != self.doc["hash"]:
             return None
-        if st.get("finished"):
+        if "path_key" not in st:
+            # alter Stand ohne Merkmal: nur bei exakt gleichen Einstellungen
+            return st if st.get("opts") == self.doc["opts"] else None
+        strip = lambda o: {k: v for k, v in (o or {}).items() if k != "hidden"}
+        if strip(st.get("opts")) != strip(self.doc["opts"]):
             return None
-        return st
+        by_id = {l["id"]: l for l in self.doc["layers"]}
+        ids = st.get("layer_ids") or []
+        if not ids or st.get("layer", 0) >= len(ids) or ids[st["layer"]] not in by_id:
+            return None
+        paths = by_id[ids[st["layer"]]]["paths"]
+        key = st["path_key"]
+        hit = next((i for i, p in enumerate(paths) if p and self.path_key(p) == key), None)
+        if hit is None:
+            return None          # Linie ist (z. B. ausgeblendet) nicht mehr vorhanden
+        out = dict(st)
+        out["moved"] = hit != st.get("path")
+        out["path"] = hit
+        return out
 
     def save_progress(self, job, force=False, finished=False):
         if not force and time.time() - self._last_save < 2:
             return
         self._last_save = time.time()
         li, pi = job.resume_point()
+        key = None
+        try:
+            lid = job.layer_ids[li]
+            lp = next(l for l in self.doc["layers"] if l["id"] == lid)["paths"]
+            if 0 <= pi < len(lp):
+                key = self.path_key(lp[pi])
+        except Exception:
+            pass
         try:
             save_json(JOBSTATE_FILE, {
+                "path_key": key,
                 "hash": self.doc["hash"], "opts": self.doc["opts"], "name": self.doc["name"],
                 "layer_ids": job.layer_ids, "layer": li, "path": pi,
                 "layer_name": job.layers[li]["name"] if li < len(job.layers) else "",

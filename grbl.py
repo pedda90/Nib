@@ -53,6 +53,10 @@ class Machine:
         self.on_fw = None         # callback(fw) wenn $130/$131 gelesen
         self._last_ok_t = 0.0     # Zeitpunkt des letzten 'ok'
         self._idle_since = None   # seit wann der Plotter 'Idle' meldet
+        self._raw = collections.deque(maxlen=300)   # letzte Zeilen (Zeit, rx/tx, Text) für Diagnose
+        self._anomalies = 0       # Antworten mit angehängtem/eingeschobenem Text
+        self.lost_acks_total = 0
+        self._diag_count = 0
 
     # ------------------------------------------------------------------ log
     def _log(self, kind, text):
@@ -149,6 +153,7 @@ class Machine:
                 one, buf = buf.split(b"\n", 1)
                 line = one.decode(errors="ignore").strip()
                 if line:
+                    self._raw.append((time.time(), "rx", line))
                     self._handle_line(line)
             if len(buf) > 4096:          # Müll ohne Zeilenende verwerfen
                 buf = b""
@@ -156,7 +161,20 @@ class Machine:
     def _handle_line(self, line):
         if True:
             if line.startswith("<"):
-                self._parse_status(line)
+                end = line.find(">")
+                if end < 0:
+                    # Statusmeldung ohne Ende – vermutlich hat der Plotter etwas hineingeschrieben
+                    self._anomalies += 1
+                    if line.endswith("ok"):
+                        self._parse_status(line[:-2] + ">")
+                        self._handle_line("ok")
+                    return
+                self._parse_status(line[:end + 1])
+                rest = line[end + 1:].strip()
+                if rest:
+                    # z. B. "<Run|...>ok": das 'ok' klebt an der Statusmeldung
+                    self._anomalies += 1
+                    self._handle_line(rest)
             elif line == "ok" or line.startswith("error"):
                 with self.cv:
                     item = self.inflight.popleft() if self.inflight else None
@@ -238,24 +256,51 @@ class Machine:
             time.sleep(0.2)
             self._check_lost_acks()
 
+    LOST_ACK_WAIT = 0.8   # s Stillstand, ab dem fehlende 'ok' angenommen werden
+
     def _check_lost_acks(self):
-        """Sicherheitsnetz: Steht der Plotter still (Idle), obwohl der älteste 'unterwegs'
-        geltende Befehl schon > 3 s alt ist und seitdem kein 'ok' mehr kam, sind diese
-        Bestätigungen verloren gegangen. Dann den Zähler freigeben, damit der Plot
-        weiterläuft statt ewig zu warten."""
+        """Sicherheitsnetz: Ist der Plotter *nach* dem Senden des ältesten offenen Befehls in
+        den Stillstand (Idle) gegangen und kam seit LOST_ACK_WAIT kein 'ok' mehr, hat er alle
+        Befehle ausgeführt (nachgemessen: Stiftposition = Ziel des zuletzt gesendeten Befehls),
+        nur die Bestätigungen fehlen. Dann den Zähler freigeben, damit es sofort weitergeht."""
         now = time.time()
+        w = self.LOST_ACK_WAIT
         with self.cv:
             if not self.inflight or not self.state.startswith("Idle"):
                 return
             oldest = self.inflight[0][3]
-            # Idle muss *nach* dem Senden beobachtet worden sein, nicht schon vorher
-            if (now - oldest < 3 or now - self._last_ok_t < 3
-                    or self._idle_since is None or self._idle_since <= oldest):
+            if (self._idle_since is None or self._idle_since <= oldest
+                    or now - self._idle_since < w or now - self._last_ok_t < w):
                 return
             n = len(self.inflight)
+            pend = [i[1] for i in self.inflight]
             self.inflight.clear()
             self.cv.notify_all()
-        self._log("warn", f"{n} Bestätigung(en) vom Plotter fehlten – Senden wird fortgesetzt")
+            raw = list(self._raw)
+        self.lost_acks_total += n
+        self._log("warn", f"{n} Bestätigung(en) vom Plotter fehlten – weiter (insgesamt {self.lost_acks_total})")
+        self._write_diag(n, pend, raw)
+
+    DIAG_FILE = "verbindung_diagnose.log"
+
+    def _write_diag(self, n, pend, raw):
+        """Die letzten gesendeten/empfangenen Zeilen in eine Datei schreiben (max. 20 Einträge
+        pro Sitzung), damit man sieht, was mit den 'ok' passiert ist."""
+        if self._diag_count >= 20:
+            return
+        self._diag_count += 1
+        try:
+            import os
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.DIAG_FILE)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(f"\n===== {time.strftime('%d.%m.%Y %H:%M:%S')}  {n} fehlende ok, "
+                        f"Auffälligkeiten bisher: {self._anomalies}\n")
+                f.write("offen: " + " | ".join(pend) + "\n")
+                t0 = raw[0][0] if raw else 0
+                for t, k, l in raw:
+                    f.write(f"{t - t0:8.3f} {k} {l!r}\n")
+        except Exception:
+            pass
 
     def _sender(self):
         while self._running:
@@ -267,6 +312,7 @@ class Machine:
                 line, tag = self.pending.popleft()
                 data = (line + "\n").encode()
                 self.inflight.append((len(data), line, tag, time.time()))
+                self._raw.append((time.time(), "tx", line))
             self._write(data)
             if tag == "console":
                 self._log("tx", line)

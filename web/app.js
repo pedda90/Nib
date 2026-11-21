@@ -668,6 +668,7 @@ function renderResume() {
   box.hidden = false;
   box.innerHTML = `Letzter Plot dieser Datei wurde unterbrochen (${esc(r.time)}):<br>
     Ebene ${r.layer + 1} „${esc(String(r.layer_name).split("  ")[0])}“, Pfad ${fmtNum(r.path + 1)}${r.reverse ? " (rückwärts)" : ""}.
+    ${r.moved ? "<br><small>Die Linie wurde wiedergefunden, ihre Nummer hat sich durch ein- oder ausgeblendete Unterebenen geändert.</small>" : ""}
     <button class="primary">Stelle anzeigen &amp; übernehmen</button>`;
   box.querySelector("button").onclick = () => {
     const ids = doc.layers.map((l) => l.id);
