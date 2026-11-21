@@ -309,7 +309,10 @@ class Machine:
         self._diag_count += 1
         try:
             import os
-            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.DIAG_FILE)
+            import sys
+            base = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
+                    else os.path.dirname(os.path.abspath(__file__)))
+            path = os.path.join(base, self.DIAG_FILE)
             with open(path, "a", encoding="utf-8") as f:
                 f.write(f"\n===== {time.strftime('%d.%m.%Y %H:%M:%S')}  {n} fehlende ok, "
                         f"Auffälligkeiten bisher: {self._anomalies}\n")

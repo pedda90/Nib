@@ -5,11 +5,18 @@ Eigene Steuer-Software für den UUNATeK-3.0-Stiftplotter (GRBL über USB/CH340).
 **Alle Bedienelemente und Einstellungen erklärt: [BEDIENUNG.md](BEDIENUNG.md)**
 
 ## Starten
-Doppelklick auf **`Nib starten.bat`**. Der Browser öffnet sich auf http://127.0.0.1:8765.
-**Beenden:** Einfach das Browserfenster bzw. den Tab schließen. Nib beendet sich nach wenigen
-Sekunden selbst, das schwarze Fenster schließt sich mit. Läuft gerade ein Plot (auch pausiert oder beim
-Stiftwechsel), wird er zu Ende geführt und Nib beendet sich erst danach. Zurück zur Oberfläche
-geht es dann über http://127.0.0.1:8765. Zum Entwickeln lässt sich das mit `server.py --keep-running` abschalten.
+Doppelklick auf **`Nib.exe`**. Nib öffnet sich als eigenes Programmfenster, ohne Browser.
+**Beenden:** Fenster schließen. Läuft gerade ein Plot (auch pausiert oder beim Stiftwechsel), fragt
+Nib vorher nach. Bei „Ja“ wird der Plot abgebrochen und die Stelle zum Fortsetzen gemerkt.
+Einstellungen (`settings.json`) und Fortsetzen-Stand (`job_state.json`) liegen neben der exe.
+
+**exe neu bauen** (nach Änderungen am Code): Doppelklick auf **`build_exe.bat`**. Das dauert etwa
+eine halbe Minute und legt eine neue `Nib.exe` in diesen Ordner. Benötigt Python und Windows 11
+bzw. die Edge-WebView2-Runtime (in Windows 11 eingebaut).
+
+**Alternativ im Browser:** `Nib starten.bat` öffnet die Oberfläche auf http://127.0.0.1:8765.
+Beim Schließen des Browserfensters beendet sich Nib selbst, außer während eines Plots.
+Zum Entwickeln lässt sich das mit `server.py --keep-running` abschalten.
 
 **Wichtig:** Vorher die UUNA-Software schließen. Es kann immer nur ein Programm COM3 benutzen.
 

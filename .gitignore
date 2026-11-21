@@ -13,3 +13,7 @@ plotter/
 
 # Diagnose
 verbindung_diagnose.log
+build/
+Nib.exe
+nib.log
+fensterdaten/

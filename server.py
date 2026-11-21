@@ -24,9 +24,15 @@ from grbl import Job, Machine, list_ports
 from svgload import load_svg
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-WEB = os.path.join(HERE, "web")
-SETTINGS_FILE = os.path.join(HERE, "settings.json")
-JOBSTATE_FILE = os.path.join(HERE, "job_state.json")
+if getattr(sys, "frozen", False):
+    # als Nib.exe: Oberfläche steckt in der exe, Einstellungen liegen neben der exe
+    RES = getattr(sys, "_MEIPASS", HERE)
+    DATA = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    RES = DATA = HERE
+WEB = os.path.join(RES, "web")
+SETTINGS_FILE = os.path.join(DATA, "settings.json")
+JOBSTATE_FILE = os.path.join(DATA, "job_state.json")
 PORT = 8765
 
 DEFAULTS = {
@@ -543,7 +549,7 @@ class Handler(BaseHTTPRequestHandler):
                 M.connect(b["port"], b.get("baud", 115200))
             except Exception as e:
                 M.disconnect()
-                return {"error": f"Verbindung fehlgeschlagen: {e}. Läuft die UUNA-Software noch?"}
+                return {"error": f"Verbindung fehlgeschlagen: {e}. Läuft die UUNA-Software oder ein zweites Nib noch?"}
             return {"ok": True}
         if path == "/api/disconnect":
             M.disconnect()
@@ -696,12 +702,34 @@ def watchdog(srv):
             return
 
 
+class _Server(ThreadingHTTPServer):
+    # Port exklusiv belegen: Unter Windows erlaubt SO_REUSEADDR sonst, dass sich ein zweites
+    # Nib auf denselben Port setzt – Anfragen landen dann beim falschen Programm.
+    allow_reuse_address = False
+
+    def server_bind(self):
+        import socket
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+def make_server(port=PORT, fallback=False):
+    """HTTP-Server erzeugen. Mit fallback=True wird ein freier Port genommen, falls belegt."""
+    try:
+        return _Server(("127.0.0.1", port), Handler)
+    except OSError:
+        if not fallback:
+            raise
+        return _Server(("127.0.0.1", 0), Handler)
+
+
 def main():
     no_browser = "--no-browser" in sys.argv
     port = PORT
     if "--port" in sys.argv:
         port = int(sys.argv[sys.argv.index("--port") + 1])
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    srv = make_server(port)
     url = f"http://127.0.0.1:{port}/"
     print(f"Nib läuft auf {url}  (Beenden mit Strg+C)")
     if not no_browser:
