@@ -197,10 +197,15 @@ class App:
             self.file_hash = hashlib.sha1(data).hexdigest()
             self.hidden = set()
             self._opt_cache = {}
+            xs = [x for pl in res.polylines for x, _ in pl.pts] or [0]
+            ys = [y for pl in res.polylines for _, y in pl.pts] or [0]
+            self._bbox = [min(xs), min(ys), max(xs), max(ys)]
         return self.process(self.settings["optimize"])
 
-    def process(self, opts, hidden=None):
-        opts = {k: v for k, v in opts.items() if k != "hidden"}
+    def process(self, opts, hidden=None, light=False):
+        """Lay out the document. light=True (used when only showing/hiding sublayers):
+        the reply carries layer stats but no path data – the client filters its own copy."""
+        opts = {k: v for k, v in opts.items() if k not in ("hidden", "light")}
         self.settings["optimize"] = deep_merge(self.settings["optimize"], opts)
         self.save_settings()
         opts = self.settings["optimize"]
@@ -238,9 +243,7 @@ class App:
             groups[key]["names"][nm] = groups[key]["names"].get(nm, 0) + 1
             groups[key].setdefault("full", set()).add(p.layer)
 
-        allx = [x for p in polys for x, _ in p.pts] or [0]
-        ally = [y for p in polys for _, y in p.pts] or [0]
-        bbox = [min(allx), min(ally), max(allx), max(ally)]
+        bbox = self._bbox
 
         layers = []
         okey = json.dumps(opts, sort_keys=True)
@@ -274,6 +277,8 @@ class App:
                 "id": lid, "name": str(key) if mode != "color" else _color_name(key, names),
                 "color": color, "count": len(paths), "points": sum(len(p) for p in paths),
                 "paths": paths, "subs": subs, **st,
+                # all paths in plot order with their sublayer, so the client can hide sublayers itself
+                "subnames": list(g["subs"]), "tagged": tagged,
             })
         self._opt_cache = cache
         hidden_now = sorted(h for h in self.hidden if any(
@@ -284,16 +289,22 @@ class App:
                         "opts": copy.deepcopy(opts) | ({"hidden": hidden_now} if hidden_now else {}),
                         "hidden": hidden_now,
                         "width_mm": self.raw.width_mm, "height_mm": self.raw.height_mm}
-        return self.doc_json(time.time() - t0)
+        return self.doc_json(time.time() - t0, light=light)
 
-    def doc_json(self, took=0.0):
+    def doc_json(self, took=0.0, light=False):
+        """Full reply: every path of a layer (hidden sublayers too) as 'all' plus 'tags'
+        (index into 'subnames'); the visible 'paths' are derived from it on the client."""
         d = self.doc
         if d is None:
             return {"doc": None}
         layers = []
         for l in d["layers"]:
-            flat = [[round(c, 2) for pt in p for c in pt] for p in l["paths"]]
-            layers.append({k: v for k, v in l.items() if k != "paths"} | {"paths": flat})
+            base = {k: v for k, v in l.items() if k not in ("paths", "tagged")}
+            if not light:
+                ix = {n: i for i, n in enumerate(l["subnames"])}
+                base["all"] = [[round(c, 2) for pt in p for c in pt] for _, p in l["tagged"]]
+                base["tags"] = [ix[t] for t, _ in l["tagged"]]
+            layers.append(base)
         return {"doc": {k: v for k, v in d.items() if k != "layers"} | {"layers": layers},
                 "took": round(took, 2), "resume": self.resume_info()}
 
@@ -541,7 +552,7 @@ class Handler(BaseHTTPRequestHandler):
             APP.save_settings()
             return APP.settings
         if path == "/api/process":
-            return APP.process(b, b.get("hidden"))
+            return APP.process(b, b.get("hidden"), light=bool(b.get("light")))
         if path == "/api/connect":
             S["connection"] = {"port": b["port"], "baud": int(b.get("baud", 115200))}
             APP.save_settings()

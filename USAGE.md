@@ -8,6 +8,11 @@ placement, optimization, layers and plot on the right. **Open SVG** and the info
 file sit in the bar above the preview. Drag the dividers to resize the side panels and the console;
 double-click a divider to restore the default. The layout is remembered.
 
+**Preview ink** (bar above the preview): **Ink: fineliner** shows transparent inks that mix where
+they overlap, like real fineliners. **Ink: opaque** shows gel or paint pens that cover what was
+plotted before, so the layer order matters. The field next to it is the **pen tip width** in mm;
+lines are drawn exactly this wide. Both only change the preview, not the plot.
+
 **Light/dark:** the button next to **STOP** at the top right cycles through *System* (follows Windows),
 *Light* and *Dark*. **Collapsing:** sections with an arrow in their title (e.g. *Speed & pen*, *Machine*,
 *Optimization*) open and close when you click the title; their state is remembered.
@@ -109,6 +114,7 @@ Each field shows its default below it; changed values are highlighted.
    Illustrator layers it is made of. Each one can be unticked individually. Unticked sublayers
    disappear from the preview and are not plotted. If everything in a color is unticked, that color
    is skipped (no pen change).
+   Showing or hiding a sublayer is instant; the plot order of the remaining lines stays the same.
 2. Under **Placement**, set position and size (X/Y, Width/Height, Scale, Rotation); **Center**, **Fit**
    and **100 %** help with alignment.
    **Reference point (the 3×3 grid next to X/Y):** sets which corner or center of the design X and Y

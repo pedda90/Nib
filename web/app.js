@@ -199,6 +199,27 @@ function doneFn(layerId) {
   return null;
 }
 
+/* Ink like on paper: the transparent part multiplies with what is
+   underneath (a colour filter, overlaps get darker), the opaque part covers it.
+   Fineliner ≈ 10 % opaque, gel/paint pens ≈ 95 % – then the plot order matters. */
+const INK_OPACITY = { fineliner: 0.1, opaque: 0.95 };
+const inkView = { ink: "fineliner", penW: 0.3 };
+try { Object.assign(inkView, JSON.parse(localStorage.getItem("inkView")) || {}); } catch (e) { /* ignore */ }
+$("#ink").value = inkView.ink; $("#penW").value = inkView.penW;
+function saveInkView() {
+  inkView.ink = $("#ink").value;
+  inkView.penW = Math.min(3, Math.max(0.05, parseFloat($("#penW").value) || 0.3));
+  try { localStorage.setItem("inkView", JSON.stringify(inkView)); } catch (e) { /* ignore */ }
+  scheduleDraw();
+}
+$("#ink").onchange = saveInkView;
+$("#penW").onchange = saveInkView;
+function paintInk(path, alpha) {
+  const op = INK_OPACITY[inkView.ink] ?? 0.1;
+  ctx.globalCompositeOperation = "multiply"; ctx.globalAlpha = alpha; ctx.stroke(path);
+  if (op > 0.02) { ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = alpha * op; ctx.stroke(path); }
+}
+
 function draw() {
   drawQueued = false;
   if (!S) return;
@@ -226,7 +247,7 @@ function draw() {
 
   if (doc) {
     const place = makePlacer();
-    const lw = Math.max(0.6, 0.3 * view.s);
+    const lw = Math.max(0.5, inkView.penW * view.s);   // true pen width
     const showTravel = $("#showTravel").checked;
     let last = null;
     const travel = new Path2D();
@@ -247,11 +268,11 @@ function draw() {
         }
         last = [x, y];
       });
-      ctx.lineWidth = lw; ctx.lineCap = "round"; ctx.lineJoin = "round";
-      ctx.strokeStyle = l.color; ctx.globalAlpha = 0.9; ctx.stroke(pDone);
-      ctx.globalAlpha = done === null ? 0.9 : 0.22; ctx.stroke(pTodo);
-      ctx.globalAlpha = 1;
+      ctx.lineWidth = lw; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = l.color;
+      paintInk(pDone, 1);
+      paintInk(pTodo, done === null ? 1 : 0.18);
     }
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
     drawMarker(place);
     if (showTravel) {
       ctx.strokeStyle = TC.accent; ctx.globalAlpha = .55; ctx.lineWidth = 0.7; ctx.setLineDash([3, 3]);
@@ -616,6 +637,7 @@ function setDoc(j, resetPlacement) {
   doc = j.doc;
   resumeInfo = j.resume;
   if (!doc) return;
+  derivePaths();
   // keep order/selection when the layers are the same
   const ids = doc.layers.map((l) => l.id);
   if (!resetPlacement && prevOrder.length && prevOrder.every((o) => ids.includes(o.id)) && prevOrder.length === ids.length) order = prevOrder;
@@ -690,21 +712,45 @@ function renderLayers() {
   renderStartInfo();
 }
 
-async function toggleSub(layerId, name, hide) {
+/* Visible paths of every layer = all paths (in plot order) minus hidden sublayers.
+   The server sends each layer's paths once with their sublayer, so showing/hiding a
+   sublayer is instant here; the server only gets told in the background. */
+function derivePaths() {
+  const hidden = new Set(doc.hidden || []);
+  for (const l of doc.layers) {
+    if (!l.all) continue;
+    const show = (l.subnames || []).map((n) => !hidden.has(`${l.id}/${n}`));
+    l.paths = show.every(Boolean) ? l.all : l.all.filter((_, i) => show[l.tags[i]]);
+    l.count = l.paths.length;
+    (l.subs || []).forEach((sb) => { sb.hidden = hidden.has(`${l.id}/${sb.name}`); });
+  }
+}
+
+let hideSeq = 0, hideSync = Promise.resolve();
+function toggleSub(layerId, name, hide) {
   const key = `${layerId}/${name}`;
   const hidden = new Set(doc.hidden || []);
   if (hide) hidden.add(key); else hidden.delete(key);
-  $("#busy").hidden = false; $("#busy").textContent = "Recalculating…";
-  const j = await api("/api/process", { ...S.optimize, hidden: [...hidden] });
-  $("#busy").hidden = true;
+  doc.hidden = [...hidden];
   startSel = null;
-  if (j.doc) setDoc(j, false);
+  derivePaths(); renderLayers(); renderStartInfo(); scheduleDraw();
+  // tell the server (it lays out the job); only the newest answer counts
+  const seq = ++hideSeq;
+  hideSync = api("/api/process", { ...S.optimize, hidden: doc.hidden, light: true }).then((j) => {
+    if (seq !== hideSeq || !j.doc) return;
+    const byId = Object.fromEntries(doc.layers.map((l) => [l.id, l]));
+    if (j.doc.layers.some((l) => !byId[l.id])) { api("/api/process", S.optimize).then((f) => f.doc && setDoc(f, false)); return; }
+    for (const l of j.doc.layers) { const { subs, ...stats } = l; Object.assign(byId[l.id], stats); }
+    doc.hidden = j.doc.hidden; doc.opts = j.doc.opts; resumeInfo = j.resume;
+    derivePaths(); renderLayers(); renderResume();
+  });
 }
 
 // --------------------------------------------------------------- Plot
 async function startPlot(layerIds, startLayer, startPath, reverse) {
   if (!connected()) { logLocal("err", "Connect the plotter first."); return; }
   if (!doc) { logLocal("err", "Load a file first."); return; }
+  await hideSync;          // the server must know the current sublayer selection
   layerIds = layerIds.filter((id) => (doc.layers.find((l) => l.id === id) || {}).count);
   if (!layerIds.length) { logLocal("err", "No layer selected."); return; }
   if (!(st && st.zero_set) && !confirm("Is the origin set?\n\nThe pen should sit at the top-left corner of the sheet, and “Set origin” should have been pressed there.\n\nStart anyway?")) return;
