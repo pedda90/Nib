@@ -58,11 +58,12 @@ def dedupe(paths, q=0.05):
     return out
 
 
-def sort_paths(paths, start=(0.0, 0.0)):
-    """Greedy Nearest-Neighbour mit Raster-Index; Pfade dürfen umgedreht werden."""
+def sort_paths(paths, start=(0.0, 0.0), with_index=False):
+    """Greedy Nearest-Neighbour mit Raster-Index; Pfade dürfen umgedreht werden.
+    Mit with_index=True kommt zusätzlich die Liste der Ursprungs-Indizes zurück."""
     n = len(paths)
     if n < 2:
-        return list(paths)
+        return (list(paths), list(range(n))) if with_index else list(paths)
     xs = [c for p in paths for c in (p[0][0], p[-1][0])]
     ys = [c for p in paths for c in (p[0][1], p[-1][1])]
     minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
@@ -84,6 +85,7 @@ def sort_paths(paths, start=(0.0, 0.0)):
     gy_max = int((maxy - miny) // cell) + 1
     max_ring = max(gx_max, gy_max) + 2
     out = []
+    order = []
     cur = start
     for _ in range(n):
         cx, cy = key(cur)
@@ -119,8 +121,9 @@ def sort_paths(paths, start=(0.0, 0.0)):
         used[i] = True
         p = paths[i] if end == 0 else paths[i][::-1]
         out.append(p)
+        order.append(i)
         cur = p[-1]
-    return out
+    return (out, order) if with_index else out
 
 
 def merge_paths(paths, tol):
@@ -147,6 +150,41 @@ def optimize(paths, opts, start=(0.0, 0.0)):
     if opts.get("merge", True):
         paths = merge_paths(paths, float(opts.get("merge_tol", 0.1)))
     return paths
+
+
+def optimize_tagged(paths, tags, opts, start=(0.0, 0.0)):
+    """Wie optimize, aber jeder Pfad behält seine Kennung (z. B. Unterebene).
+    Alle Pfade werden gemeinsam sortiert; Doppelte werden nur innerhalb derselben
+    Kennung entfernt und zusammengefügt wird nur bei gleicher Kennung. So kann man
+    später Kennungen herausfiltern, ohne dass sich die Reihenfolge der übrigen ändert.
+    Ergebnis: Liste von (kennung, pfad)."""
+    simp = float(opts.get("simplify", 0.02))
+    min_len = float(opts.get("min_len", 0.0))
+    items = []
+    for p, t in zip(paths, tags):
+        p = simplify(p, simp)
+        if len(p) >= 2 and path_length(p) >= min_len:
+            items.append((t, p))
+    if opts.get("dedupe", True):
+        by = {}
+        for t, p in items:
+            by.setdefault(t, []).append(p)
+        keep = {t: {id(p) for p in dedupe(v)} for t, v in by.items()}
+        items = [(t, p) for t, p in items if id(p) in keep[t]]
+    if opts.get("sort", True) and items:
+        sorted_p, order = sort_paths([p for _, p in items], start, with_index=True)
+        items = [(items[i][0], p) for i, p in zip(order, sorted_p)]
+    if opts.get("merge", True) and items:
+        tol = float(opts.get("merge_tol", 0.1))
+        if tol > 0:
+            out = [(items[0][0], list(items[0][1]))]
+            for t, p in items[1:]:
+                if t == out[-1][0] and _dist(out[-1][1][-1], p[0]) <= tol:
+                    out[-1][1].extend(p[1:])
+                else:
+                    out.append((t, list(p)))
+            items = out
+    return items
 
 
 def stats(paths, start=(0.0, 0.0)):

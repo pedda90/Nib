@@ -159,7 +159,7 @@ class App:
         self.doc = None           # verarbeitete Ebenen
         self.doc_lock = threading.Lock()
         self.hidden = set()       # ausgeblendete Unterebenen "L<i>/<name>"
-        self._opt_cache = {}      # (Ebene, sichtbare Unterebenen, Optionen) -> optimierte Pfade
+        self._opt_cache = {}      # (Modus, Ebene, Optionen) -> [(Unterebene, Pfad)], alle Unterebenen gemeinsam
         self._last_save = 0.0
 
     def _fw_received(self, fw):
@@ -221,10 +221,11 @@ class App:
                 order.append(key)
             gi = order.index(key)
             groups[key]["subs"][sub] = groups[key]["subs"].get(sub, 0) + 1
+            # alle Pfade (auch ausgeblendete) gehen in die gemeinsame Optimierung
+            groups[key]["paths"].append(p.pts)
+            groups[key].setdefault("tags", []).append(sub)
             if f"L{gi}/{sub}" in self.hidden:
                 continue
-            groups[key]["paths"].append(p.pts)
-            groups[key].setdefault("by_sub", {}).setdefault(sub, []).append(p.pts)
             groups[key]["colors"][p.color] = groups[key]["colors"].get(p.color, 0) + 1
             groups[key].setdefault("names", {})
             nm = p.layer.rstrip("0123456789 ").strip() or p.layer
@@ -243,21 +244,15 @@ class App:
             lid = f"L{i}"
             visible = tuple(s for s in g["subs"] if f"{lid}/{s}" not in self.hidden)
             start = (bbox[0], bbox[1])
-            if len(g["subs"]) > 1:
-                paths = []
-                for s in visible:
-                    ck = (mode, key, s, okey)
-                    part = self._opt_cache.get(ck)
-                    if part is None:
-                        part = O.optimize(g.get("by_sub", {}).get(s, []), opts, start=start)
-                    cache[ck] = part
-                    paths = paths + part
-            else:
-                ck = (mode, key, None, okey)
-                paths = self._opt_cache.get(ck)
-                if paths is None:
-                    paths = O.optimize(g["paths"], opts, start=start) if g["paths"] else []
-                cache[ck] = paths
+            # Einmal mit ALLEN Unterebenen gemeinsam optimieren (unabhängig vom Ausblenden);
+            # Ausblenden filtert danach nur – die Reihenfolge der übrigen bleibt gleich.
+            ck = (mode, key, okey)
+            tagged = self._opt_cache.get(ck)
+            if tagged is None:
+                tagged = O.optimize_tagged(g["paths"], g["tags"], opts, start=start)
+            cache[ck] = tagged
+            vis = set(visible)
+            paths = [p for t, p in tagged if t in vis]
             hidden_here = len(visible) < len(g["subs"])
             if not paths and not hidden_here:
                 continue
