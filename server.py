@@ -158,6 +158,8 @@ class App:
         self.file_hash = ""
         self.doc = None           # verarbeitete Ebenen
         self.doc_lock = threading.Lock()
+        self.hidden = set()       # ausgeblendete Unterebenen "L<i>/<name>"
+        self._opt_cache = {}      # (Ebene, sichtbare Unterebenen, Optionen) -> optimierte Pfade
         self._last_save = 0.0
 
     def _fw_received(self, fw):
@@ -187,12 +189,17 @@ class App:
             self.raw = res
             self.file_name = name
             self.file_hash = hashlib.sha1(data).hexdigest()
+            self.hidden = set()
+            self._opt_cache = {}
         return self.process(self.settings["optimize"])
 
-    def process(self, opts):
+    def process(self, opts, hidden=None):
+        opts = {k: v for k, v in opts.items() if k != "hidden"}
         self.settings["optimize"] = deep_merge(self.settings["optimize"], opts)
         self.save_settings()
         opts = self.settings["optimize"]
+        if hidden is not None:
+            self.hidden = set(hidden)
         if self.raw is None:
             return {"error": "Keine Datei geladen"}
         t0 = time.time()
@@ -206,9 +213,15 @@ class App:
         order = []
         for p in polys:
             key = p.layer if mode == "layer" else (p.color if mode == "color" else "Alle")
+            # Unterebene: bei Farb-Ebenen die Illustrator-Ebene, bei Illustrator-Ebenen die Farbe
+            sub = p.color if mode == "layer" else p.layer
             if key not in groups:
-                groups[key] = {"paths": [], "colors": {}}
+                groups[key] = {"paths": [], "colors": {}, "subs": {}, "names": {}}
                 order.append(key)
+            gi = order.index(key)
+            groups[key]["subs"][sub] = groups[key]["subs"].get(sub, 0) + 1
+            if f"L{gi}/{sub}" in self.hidden:
+                continue
             groups[key]["paths"].append(p.pts)
             groups[key]["colors"][p.color] = groups[key]["colors"].get(p.color, 0) + 1
             groups[key].setdefault("names", {})
@@ -220,22 +233,39 @@ class App:
         bbox = [min(allx), min(ally), max(allx), max(ally)]
 
         layers = []
+        okey = json.dumps(opts, sort_keys=True)
+        cache = {}
         for i, key in enumerate(order):
             g = groups[key]
-            paths = O.optimize(g["paths"], opts, start=(bbox[0], bbox[1]))
-            if not paths:
+            lid = f"L{i}"
+            visible = tuple(s for s in g["subs"] if f"{lid}/{s}" not in self.hidden)
+            ck = (mode, key, visible, okey)
+            if ck in self._opt_cache:
+                paths = self._opt_cache[ck]
+            else:
+                paths = O.optimize(g["paths"], opts, start=(bbox[0], bbox[1])) if g["paths"] else []
+            cache[ck] = paths
+            hidden_here = len(visible) < len(g["subs"])
+            if not paths and not hidden_here:
                 continue
             st = O.stats(paths, start=(bbox[0], bbox[1]))
-            color = max(g["colors"].items(), key=lambda kv: kv[1])[0]
+            color = (max(g["colors"].items(), key=lambda kv: kv[1])[0] if g["colors"]
+                     else (key if mode == "color" else "#000000"))
+            subs = ([{"name": s, "count": n, "hidden": f"{lid}/{s}" in self.hidden} for s, n in g["subs"].items()]
+                    if len(g["subs"]) > 1 else [])
             layers.append({
-                "id": f"L{i}", "name": str(key) if mode != "color" else _color_name(key, g["names"]),
+                "id": lid, "name": str(key) if mode != "color" else _color_name(key, g["names"] or {s: 1 for s in g["subs"]}),
                 "color": color, "count": len(paths), "points": sum(len(p) for p in paths),
-                "paths": paths, **st,
+                "paths": paths, "subs": subs, **st,
             })
+        self._opt_cache = cache
+        hidden_now = sorted(h for h in self.hidden if any(
+            f"{l['id']}/{s['name']}" == h for l in layers for s in l["subs"]))
         with self.doc_lock:
             self.doc = {"name": self.file_name, "hash": self.file_hash, "bbox": bbox,
                         "layers": layers, "mode": mode, "warnings": list(self.raw.warnings),
-                        "opts": copy.deepcopy(opts),
+                        "opts": copy.deepcopy(opts) | ({"hidden": hidden_now} if hidden_now else {}),
+                        "hidden": hidden_now,
                         "width_mm": self.raw.width_mm, "height_mm": self.raw.height_mm}
         return self.doc_json(time.time() - t0)
 
@@ -293,7 +323,7 @@ class App:
         m = self.settings["machine"]
         place = body.get("place", self.settings["place"])
         by_id = {l["id"]: l for l in self.doc["layers"]}
-        ids = [i for i in body.get("layers", []) if i in by_id]
+        ids = [i for i in body.get("layers", []) if i in by_id and by_id[i]["count"]]
         if not ids:
             return {"error": "Keine Ebene ausgewählt"}
         layers = [by_id[i] for i in ids]
@@ -399,6 +429,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ports": list_ports()})
             if path == "/api/settings":
                 return self._json(APP.settings)
+            if path == "/api/defaults":
+                return self._json(DEFAULTS)
             if path == "/api/doc":
                 return self._json(APP.doc_json())
             return self._static(path)
@@ -454,7 +486,7 @@ class Handler(BaseHTTPRequestHandler):
             APP.save_settings()
             return APP.settings
         if path == "/api/process":
-            return APP.process(b)
+            return APP.process(b, b.get("hidden"))
         if path == "/api/connect":
             S["connection"] = {"port": b["port"], "baud": int(b.get("baud", 115200))}
             APP.save_settings()
@@ -567,31 +599,6 @@ class Handler(BaseHTTPRequestHandler):
                 M.soft_reset_keep_origin(mset["z_up"], mset["z_feed"])
             else:
                 M.send("$X")
-            return {"ok": True}
-        if path == "/api/area_from_pos":
-            # Aktuelle Position (ab Einschaltecke) als Grenze übernehmen, abzüglich Reserve
-            axis = b.get("axis")
-            if axis not in ("x", "y"):
-                return {"error": "Achse fehlt"}
-            if not M.connected:
-                return {"error": "Nicht verbunden"}
-            reserve = float(b.get("reserve", 1.0))
-            sx, sy = G.from_machine(*M.status()["mpos"][:2], mset)
-            v = round(abs(sx if axis == "x" else sy) - reserve, 1)
-            if v < 10:
-                return {"error": f"Position {axis.upper()} {v + reserve:.1f} mm ist zu klein für eine Grenze"}
-            mset[f"max_{axis}"] = v
-            APP.save_settings()
-            M._log("info", f"Arbeitsbereich: Max. {axis.upper()} = {v:g} mm "
-                           f"(Position {v + reserve:.1f} mm − {reserve:g} mm Reserve)")
-            return {"ok": True, "value": v}
-        if path == "/api/area_open":
-            # Zum Ausmessen: Grenze vorübergehend auf das Firmware-Maximum öffnen
-            fx, fy = M.status().get("fw_max") or (None, None)
-            mset["max_x"], mset["max_y"] = fx or 420.0, fy or 297.0
-            APP.save_settings()
-            M._log("warn", f"Arbeitsbereich zum Ausmessen geöffnet: {mset['max_x']:g} × {mset['max_y']:g} mm "
-                           "– nur in kleinen Schritten zum Anschlag joggen!")
             return {"ok": True}
         if path == "/api/frame":
             if APP.doc is None:

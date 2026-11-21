@@ -141,5 +141,13 @@ summary { cursor: pointer; color: var(--muted); }
 #btnPick.on { background: #e5534b; border-color: #e5534b; color: #fff; }
 #cv.picking { cursor: crosshair; }
 
-.measure { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0 4px; }
-.measure #btnAreaOpen { grid-column: 1 / -1; }
+
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+label:has(> small.def):not(.chk) { flex-wrap: wrap; row-gap: 0; }
+small.def { flex-basis: 100%; color: var(--muted); font-size: 10.5px; margin-top: -3px; }
+small.def.changed { color: #e0b050; }
+label.chk small.def { flex-basis: auto; margin-left: 6px; }
+.sublayer { display: grid; grid-template-columns: 18px 1fr auto; gap: 6px; align-items: center; margin: -2px 0 0 26px; padding: 2px 6px; font-size: 12px; cursor: pointer; }
+.sublayer.off { opacity: .45; }
+.sublayer .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sublayer .meta { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }

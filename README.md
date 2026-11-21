@@ -28,12 +28,13 @@ geht es dann über http://127.0.0.1:8765. Zum Entwickeln lässt sich das mit `se
   Die Position auf der Zeichenfläche bleibt erhalten.
 - Ebenen nach Farbe oder nach Illustrator-Ebene, ein- und ausschaltbar, Reihenfolge änderbar,
   automatische Pause zum Stiftwechsel.
-- Pfadoptimierung: Reihenfolge sortieren, Linien verbinden, Doppelte entfernen, vereinfachen.
+- Pfadoptimierung: Reihenfolge sortieren, Linien verbinden, Doppelte entfernen, vereinfachen (Standardwerte werden angezeigt).
+- Illustrator-Ebenen innerhalb einer Stiftfarbe einzeln ein- und ausblenden.
 - Vorschau mit Leerfahrten, Zeitschätzung pro Ebene, Live-Fortschritt und Stiftposition.
 - Pause/Weiter (auch mit der Leertaste), Stopp ohne Verlust des Nullpunkts,
   **Fortsetzen nach Abbruch** (auch nach einem Neustart des Programms) oder ab einem beliebigen Pfad.
 - **Rückwärts plotten** (vom Ende zum Anfang) und Startpunkt per Klick in die Vorschau wählen.
-- Arbeitsbereichs-Grenzen ab der Einschaltecke, mit Ausmess-Funktion. Geschwindigkeiten auf das Firmware-Maximum begrenzt.
+- Arbeitsbereichs-Grenzen ab der Einschaltecke. Geschwindigkeiten auf das Firmware-Maximum begrenzt.
 - Manuelle Steuerung, einstellbare Geschwindigkeiten, Konsole für G-Code und `$`-Befehle.
 - „SIMULATOR“ als Schnittstelle zum Ausprobieren ohne Plotter.
 

@@ -395,8 +395,10 @@ function bindSettings() {
   $$("[data-opt]").forEach((el) => {
     const k = el.dataset.opt, v = S.optimize[k];
     if (el.type === "checkbox") el.checked = !!v; else el.value = v;
+    showOptDefault(el, k);
     el.onchange = () => {
       S.optimize[k] = el.type === "checkbox" ? el.checked : (el.tagName === "SELECT" ? el.value : parseFloat(el.value));
+      showOptDefault(el, k);
       $("#btnProcess").classList.add("primary");
     };
   });
@@ -488,6 +490,31 @@ async function uploadFile(f) {
   } finally { $("#busy").hidden = true; }
 }
 
+// Standardwerte der Optimierung neben den Feldern anzeigen
+let DEF = null;
+function showOptDefault(el, k) {
+  if (!DEF) return;
+  const d = DEF.optimize[k];
+  const lbl = el.closest("label");
+  if (!lbl) return;
+  let tag = lbl.querySelector(".def");
+  if (!tag) { tag = document.createElement("small"); tag.className = "def"; lbl.appendChild(tag); }
+  const opt = el.tagName === "SELECT" ? el.querySelector(`option[value="${d}"]`) : null;
+  const txt = el.type === "checkbox" ? (d ? "an" : "aus") + ")"
+    : el.tagName === "SELECT" ? (opt ? opt.textContent : d)
+    : String(d).replace(".", ",") + " mm";
+  tag.textContent = el.type === "checkbox" ? `(Std: ${txt}` : `Standard: ${txt}`;
+  const cur = el.type === "checkbox" ? el.checked : el.tagName === "SELECT" ? el.value : parseFloat(el.value);
+  tag.classList.toggle("changed", cur !== d);
+}
+$("#btnOptDefaults").onclick = () => {
+  if (!DEF) return;
+  S.optimize = { ...S.optimize, ...DEF.optimize };
+  bindSettings();
+  $("#btnProcess").classList.add("primary");
+  logLocal("info", "Optimierung auf Standardwerte gesetzt – mit „Neu berechnen“ übernehmen.");
+};
+
 $("#btnProcess").onclick = async () => {
   if (!doc) return;
   $("#busy").hidden = false; $("#busy").textContent = "Wird neu berechnet…";
@@ -552,6 +579,15 @@ function renderLayers() {
     up.onclick = () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; renderLayers(); scheduleDraw(); };
     dn.onclick = () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; renderLayers(); scheduleDraw(); };
     box.appendChild(row);
+    // Illustrator-Ebenen innerhalb der Stiftfarbe ein-/ausblenden
+    (l.subs || []).forEach((sb) => {
+      const sr = document.createElement("label");
+      sr.className = "sublayer" + (o.on ? "" : " off");
+      sr.innerHTML = `<input type="checkbox" ${sb.hidden ? "" : "checked"} ${jobActive() ? "disabled" : ""}>
+        <span class="nm" title="${esc(sb.name)}">${esc(sb.name)}</span><span class="meta">${fmtNum(sb.count)}</span>`;
+      sr.querySelector("input").onchange = (e) => toggleSub(l.id, sb.name, !e.target.checked);
+      box.appendChild(sr);
+    });
   });
   $("#totalTime").textContent = `≈ ${fmtTime(total)}`;
   // Startauswahl
@@ -561,10 +597,22 @@ function renderLayers() {
   renderStartInfo();
 }
 
+async function toggleSub(layerId, name, hide) {
+  const key = `${layerId}/${name}`;
+  const hidden = new Set(doc.hidden || []);
+  if (hide) hidden.add(key); else hidden.delete(key);
+  $("#busy").hidden = false; $("#busy").textContent = "Wird neu berechnet…";
+  const j = await api("/api/process", { ...S.optimize, hidden: [...hidden] });
+  $("#busy").hidden = true;
+  startSel = null;
+  if (j.doc) setDoc(j, false);
+}
+
 // --------------------------------------------------------------- Plot
 async function startPlot(layerIds, startLayer, startPath, reverse) {
   if (!connected()) { logLocal("err", "Zuerst den Plotter verbinden."); return; }
   if (!doc) { logLocal("err", "Zuerst eine Datei laden."); return; }
+  layerIds = layerIds.filter((id) => (doc.layers.find((l) => l.id === id) || {}).count);
   if (!layerIds.length) { logLocal("err", "Keine Ebene ausgewählt."); return; }
   if (!(st && st.zero_set) && !confirm("Ist der Nullpunkt gesetzt?\n\nDer Stift sollte an der oberen linken Blattecke stehen und dort „Nullpunkt hier“ gedrückt worden sein.\n\nTrotzdem starten?")) return;
   const r = await api("/api/job/start", { layers: layerIds, start_layer: startLayer, start_path: startPath, place: S.place, reverse: !!reverse });
@@ -680,12 +728,6 @@ window.addEventListener("pagehide", () => {
   }
   navigator.sendBeacon("/api/bye", new Blob(["{}"], { type: "application/json" }));
 });
-$("#btnAreaOpen").onclick = () => {
-  if (confirm("Grenzen auf das Firmware-Maximum öffnen?\nDanach nur in kleinen Schritten (1 mm) zum Anschlag joggen und die Grenze mit „Pos. → Max.“ wieder setzen."))
-    api("/api/area_open", {});
-};
-$("#btnAreaX").onclick = () => api("/api/area_from_pos", { axis: "x" });
-$("#btnAreaY").onclick = () => api("/api/area_from_pos", { axis: "y" });
 
 window.addEventListener("keydown", (e) => {
   if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
@@ -790,6 +832,7 @@ function renderStatus() {
 // --------------------------------------------------------------- Start
 (async function init() {
   S = await api("/api/settings");
+  DEF = await api("/api/defaults");
   bindSettings();
   updatePlaceInputs();
   await loadPorts();

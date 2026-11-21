@@ -75,13 +75,7 @@
       <label class="chk"><input type="checkbox" data-set="machine.limits_on"> Grenzen einhalten</label>
       <label>Max. X <span><input type="number" data-set="machine.max_x" step="1" min="1"> mm</span></label>
       <label>Max. Y <span><input type="number" data-set="machine.max_y" step="1" min="1"> mm</span></label>
-      <div class="measure">
-        <button id="btnAreaOpen" title="Grenzen vorübergehend auf 420 × 297 mm (Firmware) öffnen, um den echten Weg auszumessen">Zum Ausmessen öffnen</button>
-        <button id="btnAreaX" title="Aktuelle X-Position minus 1 mm als Max. X übernehmen">Pos. → Max. X</button>
-        <button id="btnAreaY" title="Aktuelle Y-Position minus 1 mm als Max. Y übernehmen">Pos. → Max. Y</button>
-      </div>
-      <p class="hint"><b>Ausmessen:</b> In der Ecke einschalten, „Zum Ausmessen öffnen“, mit 1-mm-Schritten bis kurz vor den Anschlag joggen, dann „Pos. → Max. Y“ (bzw. X). Es wird 1 mm Reserve abgezogen.</p>
-      <p class="hint">Gilt ab der Einschaltposition (Ecke), rot gestrichelt in der Vorschau. Verfahren stoppt an der Grenze, Plots und Rahmen außerhalb werden nicht gestartet. Die Firmware erlaubt 420 × 297 mm, der echte Weg kann kürzer sein – hier den selbst gemessenen Wert (mit ein paar mm Reserve) eintragen. Er wird nur verkleinert, nie automatisch vergrößert.</p>
+      <p class="hint">Gilt ab der Einschaltposition (Ecke), rot gestrichelt in der Vorschau. Verfahren stoppt an der Grenze, Plots und Rahmen außerhalb werden nicht gestartet. Standard ist die Grenze der Plotter-Firmware (420 × 297 mm). Ein kleinerer Wert bleibt erhalten.</p>
       <p class="hint">Mit „Rahmen abfahren“ prüfen: Der Stift muss die Kontur der Vorschau nachfahren.</p>
     </section>
   </aside>
@@ -156,7 +150,7 @@
       <label>Verbinden bis <span><input type="number" data-opt="merge_tol" step="0.05" min="0"> mm</span></label>
       <label>Vereinfachen <span><input type="number" data-opt="simplify" step="0.01" min="0"> mm</span></label>
       <label>Kürzer weglassen <span><input type="number" data-opt="min_len" step="0.1" min="0"> mm</span></label>
-      <button id="btnProcess" class="wide">Neu berechnen</button>
+      <div class="row2"><button id="btnOptDefaults" title="Alle Optimierungs-Einstellungen auf die Standardwerte zurücksetzen">Standardwerte</button><button id="btnProcess">Neu berechnen</button></div>
     </section>
 
     <section>

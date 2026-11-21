@@ -62,14 +62,35 @@ Deshalb gilt die Position beim Einschalten als **Maschinen-Nullpunkt**, und alle
 - **Max. X / Max. Y:** Größe des nutzbaren Bereichs ab der Einschaltecke (rot gestrichelt in der Vorschau).
   Verfahren stoppt an der Grenze, Plots und Rahmen außerhalb werden gar nicht erst gestartet.
 - Die Firmware erlaubt **420 × 297 mm**. Ein selbst eingetragener kleinerer Wert bleibt erhalten und wird beim Verbinden nie automatisch vergrößert.
-- **Ausmessen:** „Zum Ausmessen öffnen“, dann mit 1-mm-Schritten bis kurz vor den Anschlag joggen, dann **Pos. → Max. X** bzw. **Pos. → Max. Y**. Dabei wird 1 mm Reserve abgezogen.
 - **Grenzen einhalten** sollte immer an sein.
+
+---
+
+## Optimierung
+
+Wird beim Laden einer Datei angewendet. Nach Änderungen **Neu berechnen** drücken.
+Unter jedem Feld steht der Standardwert, geänderte Werte sind orange markiert.
+**Standardwerte** setzt alles zurück (danach ebenfalls „Neu berechnen“).
+
+| Einstellung | Standard | Bedeutung |
+|---|---|---|
+| **Ebenen bilden nach** | Automatisch | *Farbe:* eine Ebene pro Stiftfarbe. *Ebene/Gruppe:* eine Ebene pro Illustrator-Ebene. *Automatisch:* nach Farbe, wenn die Datei 2–12 Farben hat, sonst nach Ebene. |
+| **Reihenfolge optimieren** | an | Sortiert die Linien so, dass die Leerfahrten möglichst kurz werden. Spart am meisten Zeit. |
+| **Anschließende Linien verbinden** | an | Linien, deren Ende fast am Anfang der nächsten liegt, werden ohne Absetzen in einem Zug gezeichnet. |
+| **Doppelte Linien entfernen** | an | Exakt gleiche Linien (z. B. aus Illustrator doppelt exportiert) werden nur einmal gezeichnet. |
+| **Verbinden bis** | 0,1 mm | Maximaler Abstand, bis zu dem zwei Linien als „anschließend“ gelten. Größer = weniger Anheben, aber kleine Lücken werden überbrückt. |
+| **Vereinfachen** | 0,02 mm | Entfernt Punkte, die weniger als diesen Wert von der Linie abweichen. Größer = schneller, aber Kurven werden eckiger. |
+| **Kürzer weglassen** | 0 mm | Linien unter dieser Länge werden nicht geplottet (gegen Punkte/Krümel). |
 
 ---
 
 ## Plotten
 
 1. SVG laden. Die Ebenen (Farben) erscheinen rechts und lassen sich ein- und ausschalten sowie umsortieren.
+   **Unterebenen:** Bei „Ebenen bilden nach: Farbe“ (oder Automatisch) stehen unter jeder Stiftfarbe
+   die Illustrator-Ebenen, aus denen sie besteht. Jede lässt sich einzeln abhaken. Abgehakte
+   Unterebenen verschwinden aus der Vorschau und werden nicht geplottet. Ist bei einer Farbe alles
+   abgehakt, wird sie beim Plot übersprungen (kein Stiftwechsel).
 2. Platzierung (X/Y, Maßstab, Drehung) einstellen.
 3. **Rahmen abfahren:** Der Stift fährt angehoben die Kontur des Designs ab. Damit prüfst du die Lage auf dem Blatt.
 4. **Start.** Zwischen den Ebenen hält der Plotter für den Stiftwechsel an, wenn „Zwischen Ebenen pausieren“ aktiv ist.
