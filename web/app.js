@@ -572,9 +572,14 @@ function setDoc(j, resetPlacement) {
   saveSettings({ place: S.place });
   $("#drop").classList.add("hidden");
   const [w, h] = placedSize();
-  $("#docInfo").innerHTML = `<b>${esc(doc.name)}</b><br>${fmtNum(doc.bbox[2] - doc.bbox[0], 1)} × ${fmtNum(doc.bbox[3] - doc.bbox[1], 1)} mm Inhalt · ${doc.layers.length} Ebene(n)<br>` +
+  const info = `${fmtNum(doc.bbox[2] - doc.bbox[0], 1)} × ${fmtNum(doc.bbox[3] - doc.bbox[1], 1)} mm · ${doc.layers.length} Ebene(n) · ` +
     `${fmtNum(doc.layers.reduce((a, l) => a + l.count, 0))} Pfade · Zeichenweg ${fmtNum(doc.layers.reduce((a, l) => a + l.draw_len, 0) / 1000, 1)} m`;
-  $("#warnings").innerHTML = doc.warnings.map((w) => `<div class="w">⚠ ${esc(w)}</div>`).join("");
+  $("#docInfo").innerHTML = `<b>${esc(doc.name)}</b> · ${info}`;
+  $("#docInfo").title = `${doc.name}\n${info}`;
+  const wn = doc.warnings.length;
+  $("#warnings").textContent = wn ? `⚠ ${wn} Hinweis${wn > 1 ? "e" : ""}` : "";
+  $("#warnings").title = doc.warnings.join("\n");
+  $("#warnings").onclick = () => doc.warnings.forEach((w) => logLocal("warn", w));
   void w; void h;
   updatePlaceInputs(); renderLayers(); renderResume(); scheduleDraw();
 }
@@ -899,4 +904,54 @@ function renderStatus() {
   const d = await api("/api/doc");
   if (d.doc) setDoc(d, false);
   poll();
+})();
+
+// --------------------------------------------------------------- Bereiche in der Größe ändern
+(function layoutResize() {
+  const DEFAULTS = { lw: 290, rw: 330, ch: 150 };
+  const lay = $(".layout");
+  let L = {};
+  try { L = JSON.parse(localStorage.getItem("layout")) || {}; } catch (e) { L = {}; }
+  const limits = (k) => k === "ch"
+    ? [60, Math.max(80, $(".stage").clientHeight - 200)]
+    : [200, Math.max(260, (window.innerWidth - (k === "lw" ? (L.rw || DEFAULTS.rw) : (L.lw || DEFAULTS.lw))) - 300)];
+  function apply() {
+    for (const k of ["lw", "rw", "ch"]) {
+      const [lo, hi] = limits(k);
+      const v = Math.round(Math.min(hi, Math.max(lo, L[k] || DEFAULTS[k])));
+      lay.style.setProperty("--" + k, v + "px");
+    }
+  }
+  function save() { try { localStorage.setItem("layout", JSON.stringify(L)); } catch (e) { /* egal */ } }
+  apply();
+  window.addEventListener("resize", apply);
+  $$(".gutter").forEach((g) => {
+    const k = g.dataset.g;
+    g.addEventListener("dblclick", () => { delete L[k]; save(); apply(); });
+    g.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      g.setPointerCapture(e.pointerId);
+      const start = k === "ch" ? e.clientY : e.clientX;
+      const from = k === "lw" ? $(".panel.left").offsetWidth : k === "rw" ? $(".panel.right").offsetWidth : $(".console").offsetHeight;
+      g.classList.add("drag");
+      document.body.classList.add("resizing", k === "ch" ? "row" : "col");
+      const move = (ev) => {
+        const d = (k === "ch" ? ev.clientY : ev.clientX) - start;
+        // linke Leiste wächst nach rechts, rechte Leiste und Konsole wachsen nach links/oben
+        L[k] = from + (k === "lw" ? d : -d);
+        apply();
+      };
+      const up = () => {
+        g.classList.remove("drag");
+        document.body.classList.remove("resizing", "row", "col");
+        g.removeEventListener("pointermove", move);
+        g.removeEventListener("pointerup", up);
+        const v = parseFloat(lay.style.getPropertyValue("--" + k));
+        if (v) L[k] = v;
+        save();
+      };
+      g.addEventListener("pointermove", move);
+      g.addEventListener("pointerup", up);
+    });
+  });
 })();

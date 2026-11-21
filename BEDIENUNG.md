@@ -3,6 +3,12 @@
 Erklärung aller Bedienelemente und Einstellungen, plus Tipps für den sicheren Betrieb.
 Installation und erster Start stehen in der [README](README.md).
 
+**Aufteilung:** Links die Steuerung, in der Mitte die Vorschau mit der Konsole darunter, rechts
+Platzierung, Optimierung, Ebenen und Plot. **Datei öffnen** und die Infos zur geladenen Datei
+stehen in der Leiste über der Vorschau. Die Breite der beiden Seitenleisten und die Höhe der
+Konsole lassen sich an den Trennlinien mit der Maus ziehen; Doppelklick auf eine Trennlinie
+stellt den Standard wieder her. Die Einstellung wird im Browser gespeichert.
+
 ---
 
 ## Steuerung (links oben)

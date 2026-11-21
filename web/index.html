@@ -64,14 +64,14 @@
 
     <section>
       <h2>Geschwindigkeit &amp; Stift</h2>
-      <label>Zeichnen <span><input type="number" data-set="machine.feed_draw" step="100" min="100"> mm/min</span></label>
-      <label>Leerfahrt <span><input type="number" data-set="machine.feed_travel" step="100" min="100"> mm/min</span></label>
-      <label>Verfahren (Jog) <span><input type="number" data-set="machine.jog_feed" step="100" min="100"> mm/min</span></label>
-      <label>Stift oben (Z) <span><input type="number" data-set="machine.z_up" step="0.1"> mm</span></label>
-      <label>Stift unten (Z) <span><input type="number" data-set="machine.z_down" step="0.1"> mm</span></label>
-      <label>Z-Geschwindigkeit <span><input type="number" data-set="machine.z_feed" step="100" min="100"> mm/min</span></label>
-      <label>Pause nach Absetzen <span><input type="number" data-set="machine.pen_down_delay" step="0.05" min="0"> s</span></label>
-      <label>Pause nach Anheben <span><input type="number" data-set="machine.pen_up_delay" step="0.05" min="0"> s</span></label>
+      <label>Zeichnen <span class="uf"><input type="number" data-set="machine.feed_draw" step="100" min="100"><i>mm/min</i></span></label>
+      <label>Leerfahrt <span class="uf"><input type="number" data-set="machine.feed_travel" step="100" min="100"><i>mm/min</i></span></label>
+      <label>Verfahren (Jog) <span class="uf"><input type="number" data-set="machine.jog_feed" step="100" min="100"><i>mm/min</i></span></label>
+      <label>Stift oben (Z) <span class="uf"><input type="number" data-set="machine.z_up" step="0.1"><i>mm</i></span></label>
+      <label>Stift unten (Z) <span class="uf"><input type="number" data-set="machine.z_down" step="0.1"><i>mm</i></span></label>
+      <label>Z-Geschwindigkeit <span class="uf"><input type="number" data-set="machine.z_feed" step="100" min="100"><i>mm/min</i></span></label>
+      <label>Pause nach Absetzen <span class="uf"><input type="number" data-set="machine.pen_down_delay" step="0.05" min="0"><i>s</i></span></label>
+      <label>Pause nach Anheben <span class="uf"><input type="number" data-set="machine.pen_up_delay" step="0.05" min="0"><i>s</i></span></label>
       <p class="hint" id="speedHint"></p>
     </section>
 
@@ -82,16 +82,21 @@
       <label class="chk"><input type="checkbox" data-set="machine.swap_xy"> X/Y tauschen</label>
       <h2 style="margin-top:12px">Arbeitsbereich</h2>
       <label class="chk"><input type="checkbox" data-set="machine.limits_on"> Grenzen einhalten</label>
-      <label>Max. X <span><input type="number" data-set="machine.max_x" step="1" min="1"> mm</span></label>
-      <label>Max. Y <span><input type="number" data-set="machine.max_y" step="1" min="1"> mm</span></label>
-      <p class="hint">Gilt ab der Einschaltposition (Ecke), rot gestrichelt in der Vorschau. Verfahren stoppt an der Grenze, Plots und Rahmen außerhalb werden nicht gestartet. Standard ist die Grenze der Plotter-Firmware (420 × 297 mm). Ein kleinerer Wert bleibt erhalten.</p>
-      <p class="hint">Mit „Rahmen abfahren“ prüfen: Der Stift muss die Kontur der Vorschau nachfahren.</p>
+      <label>Max. X <span class="uf"><input type="number" data-set="machine.max_x" step="1" min="1"><i>mm</i></span></label>
+      <label>Max. Y <span class="uf"><input type="number" data-set="machine.max_y" step="1" min="1"><i>mm</i></span></label>
+      <p class="hint" title="Gilt ab der Einschaltposition (Ecke). Verfahren stoppt an der Grenze, Plots und Rahmen außerhalb werden nicht gestartet. Standard ist die Grenze der Plotter-Firmware (420 × 297 mm), ein kleinerer Wert bleibt erhalten. Mit „Rahmen abfahren“ prüfen: Der Stift muss die Kontur der Vorschau nachfahren.">Ab Einschaltposition, rot gestrichelt in der Vorschau. ⓘ</p>
     </section>
   </aside>
+  <div class="gutter gv" data-g="lw" title="Ziehen: Breite ändern · Doppelklick: Standard"></div>
 
   <!-- Mitte: Vorschau -->
   <section class="stage">
     <div class="stagebar">
+      <button id="btnOpen" class="primary">Datei öffnen</button>
+      <input type="file" id="file" accept=".svg,image/svg+xml" hidden>
+      <span id="docInfo" class="muted">Keine Datei geladen</span>
+      <span id="warnings"></span>
+      <span class="sep"></span>
       <select id="paper">
         <option value="420x297">A3 quer</option><option value="297x420">A3 hoch</option>
         <option value="297x210">A4 quer</option><option value="210x297">A4 hoch</option>
@@ -107,28 +112,20 @@
     <div id="canvasWrap">
       <canvas id="cv"></canvas>
       <div id="drop" class="drop">
-        <div>SVG hier hineinziehen<br><small>oder rechts „Datei öffnen“</small></div>
+        <div>SVG hier hineinziehen<br><small>oder oben „Datei öffnen“</small></div>
       </div>
       <div id="busy" class="busy" hidden>Datei wird verarbeitet…</div>
     </div>
+    <div class="gutter gh" data-g="ch" title="Ziehen: Höhe der Konsole ändern · Doppelklick: Standard"></div>
     <div class="console">
       <div id="log"></div>
       <form id="cmdForm"><input id="cmd" placeholder="G-Code oder $-Befehl senden (z. B. $$)" autocomplete="off"><button>Senden</button></form>
     </div>
   </section>
+  <div class="gutter gv" data-g="rw" title="Ziehen: Breite ändern · Doppelklick: Standard"></div>
 
-  <!-- rechte Spalte: Datei & Plot -->
+  <!-- rechte Spalte: Platzierung & Plot -->
   <aside class="panel right">
-    <section>
-      <h2>Datei</h2>
-      <div class="row2">
-        <button id="btnOpen" class="primary">Datei öffnen</button>
-        <input type="file" id="file" accept=".svg,image/svg+xml" hidden>
-      </div>
-      <div id="docInfo" class="muted">Keine Datei geladen</div>
-      <div id="warnings"></div>
-    </section>
-
     <section>
       <h2>Platzierung</h2>
       <div class="placetop">
@@ -138,14 +135,14 @@
           <button data-a="0,1"></button><button data-a="0.5,1"></button><button data-a="1,1"></button>
         </div>
         <div class="grid2">
-          <label>X <span><input type="number" id="plX" step="1"> mm</span></label>
-          <label>Y <span><input type="number" id="plY" step="1"> mm</span></label>
+          <label>X <span class="uf"><input type="number" id="plX" step="1"><i>mm</i></span></label>
+          <label>Y <span class="uf"><input type="number" id="plY" step="1"><i>mm</i></span></label>
         </div>
       </div>
       <div class="grid2">
-        <label>Breite <span><input type="number" id="plW" step="1"> mm</span></label>
-        <label>Höhe <span><input type="number" id="plH" step="1"> mm</span></label>
-        <label>Maßstab <span><input type="number" id="plS" step="1"> %</span></label>
+        <label>Breite <span class="uf"><input type="number" id="plW" step="1"><i>mm</i></span></label>
+        <label>Höhe <span class="uf"><input type="number" id="plH" step="1"><i>mm</i></span></label>
+        <label>Maßstab <span class="uf"><input type="number" id="plS" step="1"><i>%</i></span></label>
         <label>Drehung <span><select id="plR"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></span></label>
       </div>
       <div class="row3">
@@ -165,9 +162,9 @@
       <label class="chk"><input type="checkbox" data-opt="sort"> Reihenfolge optimieren</label>
       <label class="chk"><input type="checkbox" data-opt="merge"> Anschließende Linien verbinden</label>
       <label class="chk"><input type="checkbox" data-opt="dedupe"> Doppelte Linien entfernen</label>
-      <label>Verbinden bis <span><input type="number" data-opt="merge_tol" step="0.05" min="0"> mm</span></label>
-      <label>Vereinfachen <span><input type="number" data-opt="simplify" step="0.01" min="0"> mm</span></label>
-      <label>Kürzer weglassen <span><input type="number" data-opt="min_len" step="0.1" min="0"> mm</span></label>
+      <label>Verbinden bis <span class="uf"><input type="number" data-opt="merge_tol" step="0.05" min="0"><i>mm</i></span></label>
+      <label>Vereinfachen <span class="uf"><input type="number" data-opt="simplify" step="0.01" min="0"><i>mm</i></span></label>
+      <label>Kürzer weglassen <span class="uf"><input type="number" data-opt="min_len" step="0.1" min="0"><i>mm</i></span></label>
       <div class="row2"><button id="btnOptDefaults" title="Alle Optimierungs-Einstellungen auf die Standardwerte zurücksetzen">Standardwerte</button><button id="btnProcess">Neu berechnen</button></div>
     </section>
 
