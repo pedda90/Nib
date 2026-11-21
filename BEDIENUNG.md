@@ -5,15 +5,6 @@ Installation und erster Start stehen in der [README](README.md).
 
 ---
 
-## Das schwarze Fenster
-
-Darin läuft Nib selbst: Der Python-Server steuert den Plotter, die Browser-Seite ist nur
-die Oberfläche. Das Fenster offen lassen (minimieren geht). **Schließen beendet Nib.**
-
-Nach Änderungen an Nib: Fenster schließen, `Nib starten.bat` neu starten und die Browser-Seite neu laden.
-
----
-
 ## Steuerung (links oben)
 
 | Element | Funktion |
