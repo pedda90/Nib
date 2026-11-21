@@ -51,6 +51,8 @@ class Machine:
         self.on_alarm = None      # callback(text)
         self.on_reset = None      # callback()
         self.on_fw = None         # callback(fw) wenn $130/$131 gelesen
+        self._last_ok_t = 0.0     # Zeitpunkt des letzten 'ok'
+        self._idle_since = None   # seit wann der Plotter 'Idle' meldet
 
     # ------------------------------------------------------------------ log
     def _log(self, kind, text):
@@ -129,6 +131,9 @@ class Machine:
 
     # --------------------------------------------------------------- threads
     def _reader(self):
+        # readline() liefert bei Timeout auch halbe Zeilen (z. B. "o" … "k"). Deshalb sammeln
+        # und nur vollständige Zeilen auswerten – sonst gehen 'ok' verloren und der Plot bleibt stehen.
+        buf = b""
         while self._running and self.ser is not None:
             try:
                 raw = self.ser.readline()
@@ -139,14 +144,23 @@ class Machine:
                 break
             if not raw:
                 continue
-            line = raw.decode(errors="ignore").strip()
-            if not line:
-                continue
+            buf += raw
+            while b"\n" in buf:
+                one, buf = buf.split(b"\n", 1)
+                line = one.decode(errors="ignore").strip()
+                if line:
+                    self._handle_line(line)
+            if len(buf) > 4096:          # Müll ohne Zeilenende verwerfen
+                buf = b""
+
+    def _handle_line(self, line):
+        if True:
             if line.startswith("<"):
                 self._parse_status(line)
             elif line == "ok" or line.startswith("error"):
                 with self.cv:
                     item = self.inflight.popleft() if self.inflight else None
+                    self._last_ok_t = time.time()
                     self.cv.notify_all()
                 if line.startswith("error"):
                     sent = item[1] if item else "?"
@@ -196,6 +210,11 @@ class Machine:
             return
         self.status_seq += 1
         self.state = m.group(1)
+        if self.state.startswith("Idle"):
+            if self._idle_since is None:
+                self._idle_since = time.time()
+        else:
+            self._idle_since = None
         for field in m.group(2).split("|"):
             if ":" not in field:
                 continue
@@ -217,6 +236,21 @@ class Machine:
         while self._running:
             self._write(b"?")
             time.sleep(0.2)
+            self._check_lost_acks()
+
+    def _check_lost_acks(self):
+        """Sicherheitsnetz: Steht der Plotter > 3 s still (Idle), obwohl noch Befehle als
+        'unterwegs' gelten und kein 'ok' mehr kam, sind diese Bestätigungen verloren gegangen.
+        Dann den Zähler freigeben, damit der Plot weiterläuft statt ewig zu warten."""
+        now = time.time()
+        with self.cv:
+            if (not self.inflight or self._idle_since is None
+                    or now - self._idle_since < 3 or now - self._last_ok_t < 3):
+                return
+            n = len(self.inflight)
+            self.inflight.clear()
+            self.cv.notify_all()
+        self._log("warn", f"{n} Bestätigung(en) vom Plotter fehlten – Senden wird fortgesetzt")
 
     def _sender(self):
         while self._running:
