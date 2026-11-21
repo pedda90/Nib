@@ -16,15 +16,19 @@ Installation und erster Start stehen in der [README](README.md).
 | **⌂** (Mitte der Pfeile) | Fährt zurück zu dem Punkt, der mit „Nullpunkt hier“ gesetzt wurde. |
 | **Zum Maschinen-Nullpunkt** | Fährt zur Einschaltposition (Ecke). Der gesetzte Nullpunkt bleibt dabei erhalten. |
 | **Entsperren** | Nach einem Alarm (z. B. Grenze angefahren) ist der Plotter gesperrt. Das hebt die Sperre auf, ohne dass der Nullpunkt verloren geht. |
-| **Z −0,5 / Z +0,5** | Stift in kleinen Schritten hoch bzw. runter, zum Einrichten der Stifthöhe (siehe unten). |
+| **Stifthöhe Z** | Zeigt die aktuelle Z-Höhe in mm (0 = ganz oben, größer = tiefer). |
+| **▲ 0,5 / ▲ 0,1 / ▼ 0,1 / ▼ 0,5** | Stift in kleinen Schritten hoch (▲) bzw. runter (▼), zum Einrichten der Stifthöhe. |
+| **= Stift oben / = Stift unten** | Übernimmt die aktuelle Z-Höhe als „Stift oben“ bzw. „Stift unten“. |
 
 Während ein Plot läuft, ist die Steuerung gesperrt.
 
 ### Stifthöhe einrichten (neuer Stift / anderes Papier)
 
 1. **Stift hoch** klicken.
-2. Mit **Z +0,5** so lange runter, bis die Spitze das Papier gerade berührt.
-3. Den angezeigten Z-Wert ablesen, **0,5–1 mm** für etwas Andruck dazurechnen und bei **Stift unten** eintragen.
+2. Mit **▼ 0,5**, zum Schluss mit **▼ 0,1**, so lange runter, bis die Spitze das Papier gerade berührt.
+3. Noch **0,5–1 mm** tiefer fahren (etwas Andruck), dann **= Stift unten** klicken.
+4. Mit **▲** wieder hochfahren, bis der Stift sicher frei ist (ca. 1–2 mm über dem Papier), dann **= Stift oben**.
+5. Mit **Stift runter** / **Stift hoch** prüfen.
 
 ---
 

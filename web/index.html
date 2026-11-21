@@ -46,9 +46,18 @@
         <button id="btnUnlock" title="Alarm aufheben">Entsperren</button>
       </div>
       <button id="btnMachineZero" class="wide" title="Stift hoch und zurück zur Position, an der der Plotter eingeschaltet wurde. Dein Nullpunkt bleibt erhalten.">Zum Maschinen-Nullpunkt</button>
-      <div class="row2">
-        <button data-zjog="-0.5" title="Z-Achse 0,5 mm nach oben">Z −0,5</button>
-        <button data-zjog="0.5" title="Z-Achse 0,5 mm nach unten">Z +0,5</button>
+      <div class="zbox">
+        <div class="zhead">Stifthöhe Z <b id="zNow">–</b> mm <small>(0 = ganz oben, größer = tiefer)</small></div>
+        <div class="row4">
+          <button data-zjog="-0.5" title="Z 0,5 mm nach oben">▲ 0,5</button>
+          <button data-zjog="-0.1" title="Z 0,1 mm nach oben">▲ 0,1</button>
+          <button data-zjog="0.1" title="Z 0,1 mm nach unten">▼ 0,1</button>
+          <button data-zjog="0.5" title="Z 0,5 mm nach unten">▼ 0,5</button>
+        </div>
+        <div class="row2">
+          <button id="btnZasUp" title="Aktuelle Z-Höhe als „Stift oben“ übernehmen">= Stift oben</button>
+          <button id="btnZasDown" title="Aktuelle Z-Höhe als „Stift unten“ übernehmen">= Stift unten</button>
+        </div>
       </div>
       <p class="hint">Pfeiltasten verfahren, Bild↑/Bild↓ = Stift hoch/runter, Leertaste = Plot pausieren.</p>
     </section>

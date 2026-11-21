@@ -702,6 +702,22 @@ $$("[data-jog]").forEach((b) => b.onclick = () => {
   api("/api/jog", { x: dx * jogStep, y: dy * jogStep });
 });
 $$("[data-zjog]").forEach((b) => b.onclick = () => api("/api/jog", { z: +b.dataset.zjog }));
+// Aktuelle Z-Höhe als Stift oben/unten übernehmen
+function takeZ(key, label) {
+  if (!st || !st.connected) return;
+  const z = Math.round(st.wpos[2] * 100) / 100;
+  const other = key === "z_up" ? S.machine.z_down : S.machine.z_up;
+  if (key === "z_up" ? z >= other : z <= other) {
+    logLocal("warn", `Achtung: „Stift oben“ muss kleiner sein als „Stift unten“ (Z ${z} vs. ${other}).`);
+  }
+  S.machine[key] = z;
+  saveSettings({ machine: { [key]: z } });
+  bindSettings();
+  logLocal("info", `${label} = ${String(z).replace(".", ",")} mm übernommen`);
+}
+$("#btnZasUp").onclick = () => takeZ("z_up", "Stift oben");
+$("#btnZasDown").onclick = () => takeZ("z_down", "Stift unten");
+
 function setJogStep(v) {
   if (!(v > 0)) return;
   jogStep = v;
@@ -821,6 +837,8 @@ function renderStatus() {
   $("#posX").textContent = on ? st.wpos[0].toFixed(2) : "–";
   $("#posY").textContent = on ? st.wpos[1].toFixed(2) : "–";
   $("#posZ").textContent = on ? st.wpos[2].toFixed(2) : "–";
+  $("#zNow").textContent = on ? st.wpos[2].toFixed(2).replace(".", ",") : "–";
+  $("#btnZasUp").disabled = $("#btnZasDown").disabled = !on || jobActive();
   $("#btnConnect").textContent = on ? "Trennen" : "Verbinden";
   $("#btnConnect").classList.toggle("primary", !on);
   $("#port").disabled = on; $("#baud").disabled = on;
