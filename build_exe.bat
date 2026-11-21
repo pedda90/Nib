@@ -1,9 +1,9 @@
 @echo off
-rem Baut Nib.exe (eigenes Fenster, kein Browser) in diesen Ordner.
-rem Einstellungen (settings.json) und Fortsetzen-Stand (job_state.json) liegen neben der exe.
+rem Builds Nib.exe (its own window, no browser) into this folder.
+rem Settings (settings.json) and the resume point (job_state.json) are stored next to the exe.
 cd /d "%~dp0"
 if not exist ".venv\Scripts\python.exe" (
-  py -3 -m venv .venv || (echo Python nicht gefunden - bitte von python.org installieren. & pause & exit /b 1)
+  py -3 -m venv .venv || (echo Python not found - please install it from python.org. & pause & exit /b 1)
 )
 ".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -q -r requirements.txt pyinstaller || (pause & exit /b 1)
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onefile --windowed ^
@@ -13,4 +13,4 @@ if not exist ".venv\Scripts\python.exe" (
   --distpath "%~dp0." --workpath "%~dp0build" --specpath "%~dp0build" ^
   app.py || (pause & exit /b 1)
 echo.
-echo Fertig: Nib.exe
+echo Done: Nib.exe
