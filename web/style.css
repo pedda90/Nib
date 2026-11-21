@@ -188,6 +188,7 @@ label.chk { justify-content: flex-start; gap: 8px; cursor: pointer; }
 .uf i { font-style: normal; color: var(--muted); font-size: 11px; width: 48px; padding: 0 8px 0 4px; white-space: nowrap; }
 .uf.small { width: 78px; }
 .uf.small i { width: 28px; }
+.uf.small.pen { width: 92px; }
 .grid2 .uf { width: 100%; }
 .grid2 .uf input[type=number] { text-align: left; }
 .grid2 .uf i { width: auto; }

@@ -205,10 +205,14 @@ function doneFn(layerId) {
 const INK_OPACITY = { fineliner: 0.1, opaque: 0.95 };
 const inkView = { ink: "fineliner", penW: 0.3 };
 try { Object.assign(inkView, JSON.parse(localStorage.getItem("inkView")) || {}); } catch (e) { /* ignore */ }
-$("#ink").value = inkView.ink; $("#penW").value = inkView.penW;
+// pen width: always two decimals (0.01 mm steps)
+const penW2 = (v) => Math.round(Math.min(3, Math.max(0.01, v)) * 100) / 100;
+inkView.penW = penW2(+inkView.penW || 0.3);
+$("#ink").value = inkView.ink; $("#penW").value = inkView.penW.toFixed(2);
 function saveInkView() {
   inkView.ink = $("#ink").value;
-  inkView.penW = Math.min(3, Math.max(0.05, parseFloat($("#penW").value) || 0.3));
+  inkView.penW = penW2(parseFloat($("#penW").value) || 0.3);
+  $("#penW").value = inkView.penW.toFixed(2);
   try { localStorage.setItem("inkView", JSON.stringify(inkView)); } catch (e) { /* ignore */ }
   scheduleDraw();
 }
