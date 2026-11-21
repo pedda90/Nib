@@ -131,9 +131,18 @@
 
     <section>
       <h2>Platzierung</h2>
+      <div class="placetop">
+        <div id="anchor" class="anchor" title="Bezugspunkt für X/Y: auf welche Ecke/Mitte des Designs sich die Koordinaten beziehen">
+          <button data-a="0,0"></button><button data-a="0.5,0"></button><button data-a="1,0"></button>
+          <button data-a="0,0.5"></button><button data-a="0.5,0.5"></button><button data-a="1,0.5"></button>
+          <button data-a="0,1"></button><button data-a="0.5,1"></button><button data-a="1,1"></button>
+        </div>
+        <div class="grid2">
+          <label>X <span><input type="number" id="plX" step="1"> mm</span></label>
+          <label>Y <span><input type="number" id="plY" step="1"> mm</span></label>
+        </div>
+      </div>
       <div class="grid2">
-        <label>X <span><input type="number" id="plX" step="1"> mm</span></label>
-        <label>Y <span><input type="number" id="plY" step="1"> mm</span></label>
         <label>Breite <span><input type="number" id="plW" step="1"> mm</span></label>
         <label>Höhe <span><input type="number" id="plH" step="1"> mm</span></label>
         <label>Maßstab <span><input type="number" id="plS" step="1"> %</span></label>

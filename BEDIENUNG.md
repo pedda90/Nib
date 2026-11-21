@@ -96,6 +96,10 @@ Unter jedem Feld steht der Standardwert, geänderte Werte sind orange markiert.
    Unterebenen verschwinden aus der Vorschau und werden nicht geplottet. Ist bei einer Farbe alles
    abgehakt, wird sie beim Plot übersprungen (kein Stiftwechsel).
 2. Platzierung (X/Y, Maßstab, Drehung) einstellen.
+   **Bezugspunkt (Neuner-Feld links neben X/Y):** Legt fest, auf welche Ecke oder Mitte des Designs
+   sich X und Y beziehen (blauer Punkt in der Vorschau). Beispiel: Mitte wählen und X 210 / Y 148,5
+   eintragen, dann sitzt das Design genau in der Mitte eines A3-Querblatts. Beim Ändern von
+   Maßstab, Breite, Höhe oder Drehung bleibt der Bezugspunkt stehen.
 3. **Rahmen abfahren:** Der Stift fährt angehoben die Kontur des Designs ab. Damit prüfst du die Lage auf dem Blatt.
 4. **Start.** Zwischen den Ebenen hält der Plotter für den Stiftwechsel an, wenn „Zwischen Ebenen pausieren“ aktiv ist.
 

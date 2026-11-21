@@ -216,6 +216,10 @@ function draw() {
     const [bx, by] = toScreen(S.place.x, S.place.y);
     ctx.strokeStyle = "rgba(47,125,224,.8)"; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
     ctx.strokeRect(bx, by, w * view.s, h * view.s); ctx.setLineDash([]);
+    // Bezugspunkt für X/Y
+    const [qx, qy] = toScreen(S.place.x + anchor[0] * w, S.place.y + anchor[1] * h);
+    ctx.fillStyle = "#4f9cf7"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(qx, qy, 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     const out = ([x0, y0, x1, y1]) => S.place.x < x0 - 0.01 || S.place.y < y0 - 0.01 || S.place.x + w > x1 + 0.01 || S.place.y + h > y1 + 0.01;
     const msg = S.machine.limits_on && out(area()) ? "Außerhalb des erlaubten Bereichs – Plot wird nicht gestartet"
       : out([0, 0, S.paper.w, S.paper.h]) ? "Design ragt über das Blatt hinaus" : "";
@@ -426,25 +430,51 @@ $("#paper").onchange = () => {
 });
 
 // --------------------------------------------------------------- Platzierung
+// Bezugspunkt (Neuner-Feld): X/Y beziehen sich auf diese Ecke/Mitte des Designs.
+// Intern bleibt S.place.x/y immer die linke obere Ecke.
+let anchor = [0, 0];
+try { const a = JSON.parse(localStorage.getItem("anchor")); if (Array.isArray(a) && a.length === 2) anchor = a; } catch (e) { /* egal */ }
+function anchorPoint() {
+  const [w, h] = doc ? placedSize() : [0, 0];
+  return [S.place.x + anchor[0] * w, S.place.y + anchor[1] * h];
+}
+// Änderung an Größe/Drehung so ausführen, dass der Bezugspunkt stehen bleibt
+function keepAnchor(fn) {
+  const [ax, ay] = anchorPoint();
+  fn();
+  const [w, h] = doc ? placedSize() : [0, 0];
+  S.place.x = ax - anchor[0] * w; S.place.y = ay - anchor[1] * h;
+}
+function renderAnchor() {
+  $$("#anchor button").forEach((b) => b.classList.toggle("on", b.dataset.a === anchor.join(",")));
+}
+$$("#anchor button").forEach((b) => b.onclick = () => {
+  anchor = b.dataset.a.split(",").map(Number);
+  try { localStorage.setItem("anchor", JSON.stringify(anchor)); } catch (e) { /* egal */ }
+  renderAnchor(); updatePlaceInputs(); scheduleDraw();
+});
+renderAnchor();
+
 function updatePlaceInputs() {
   const p = S.place;
-  $("#plX").value = +p.x.toFixed(1); $("#plY").value = +p.y.toFixed(1);
+  const [ax, ay] = anchorPoint();
+  $("#plX").value = +ax.toFixed(1); $("#plY").value = +ay.toFixed(1);
   $("#plS").value = +(p.scale * 100).toFixed(2); $("#plR").value = String(p.rotate | 0);
   if (doc) { const [w, h] = placedSize(); $("#plW").value = +w.toFixed(1); $("#plH").value = +h.toFixed(1); }
   else { $("#plW").value = ""; $("#plH").value = ""; }
 }
 function placeChanged() { updatePlaceInputs(); saveSettings({ place: S.place }); renderLayers(); scheduleDraw(); }
-$("#plX").onchange = () => { S.place.x = +$("#plX").value || 0; placeChanged(); };
-$("#plY").onchange = () => { S.place.y = +$("#plY").value || 0; placeChanged(); };
-$("#plS").onchange = () => { const v = +$("#plS").value; if (v > 0) S.place.scale = v / 100; placeChanged(); };
-$("#plR").onchange = () => { S.place.rotate = +$("#plR").value; placeChanged(); };
+$("#plX").onchange = () => { const [w] = doc ? placedSize() : [0]; S.place.x = (+$("#plX").value || 0) - anchor[0] * w; placeChanged(); };
+$("#plY").onchange = () => { const [, h] = doc ? placedSize() : [0, 0]; S.place.y = (+$("#plY").value || 0) - anchor[1] * h; placeChanged(); };
+$("#plS").onchange = () => { const v = +$("#plS").value; if (v > 0) keepAnchor(() => { S.place.scale = v / 100; }); placeChanged(); };
+$("#plR").onchange = () => { keepAnchor(() => { S.place.rotate = +$("#plR").value; }); placeChanged(); };
 $("#plW").onchange = () => {
   if (!doc) return; const [w] = placedSize(); const v = +$("#plW").value;
-  if (v > 0 && w > 0) S.place.scale *= v / w; placeChanged();
+  if (v > 0 && w > 0) keepAnchor(() => { S.place.scale *= v / w; }); placeChanged();
 };
 $("#plH").onchange = () => {
   if (!doc) return; const [, h] = placedSize(); const v = +$("#plH").value;
-  if (v > 0 && h > 0) S.place.scale *= v / h; placeChanged();
+  if (v > 0 && h > 0) keepAnchor(() => { S.place.scale *= v / h; }); placeChanged();
 };
 $("#btnCenter").onclick = () => {
   if (!doc) return; const [w, h] = placedSize();
