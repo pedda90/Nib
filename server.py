@@ -103,7 +103,7 @@ def allowed_area(m, machine=None, wco_xy=None):
     return 0.0, 0.0, ux, uy
 
 
-SPEED_NAMES = {"feed_draw": "Zeichnen", "feed_travel": "Leerfahrt", "jog_feed": "Verfahren", "z_feed": "Z"}
+SPEED_NAMES = {"feed_draw": "Drawing", "feed_travel": "Travel", "jog_feed": "Jog", "z_feed": "Z"}
 
 
 def speed_limits(fw):
@@ -136,21 +136,21 @@ def check_limits(bbox, place, m, machine=None, wco_xy=None):
     ax0, ay0, ax1, ay1 = allowed_area(m, machine, wco_xy)
     eps = 0.01
     if x < ax0 - eps or y < ay0 - eps or x + w > ax1 + eps or y + h > ay1 + eps:
-        return (f"Design liegt außerhalb der Maschinengrenzen (erlaubt X {ax0:.1f} bis {ax1:.1f}, "
-                f"Y {ay0:.1f} bis {ay1:.1f} mm ab Nullpunkt): belegt X {x:.1f}–{x + w:.1f}, "
-                f"Y {y:.1f}–{y + h:.1f} mm. Bitte verschieben/verkleinern oder den Nullpunkt prüfen.")
+        return (f"The design is outside the machine limits (allowed X {ax0:.1f} to {ax1:.1f}, "
+                f"Y {ay0:.1f} to {ay1:.1f} mm from origin; it covers X {x:.1f}–{x + w:.1f}, "
+                f"Y {y:.1f}–{y + h:.1f} mm). Move or shrink it, or check the origin.")
     return None
 
 
 def _color_name(hexcol, names):
     """Farbebene benennen, z. B. 'hatch Y' -> 'Y (#f5d000)'."""
     top = sorted(names.items(), key=lambda kv: -kv[1])
-    if top and top[0][0] not in ("Ohne Ebene",) and not top[0][0].startswith("Gruppe "):
+    if top and top[0][0] not in ("No layer",) and not top[0][0].startswith("Group "):
         label = top[0][0]
         if len(top) > 1:
             label += f" +{len(top) - 1}"
         return f"{label}  {hexcol}"
-    return f"Farbe {hexcol}"
+    return f"Color {hexcol}"
 
 
 class App:
@@ -177,16 +177,16 @@ class App:
         if (m["max_x"], m["max_y"]) != (nx, ny):
             m["max_x"], m["max_y"] = nx, ny
             self.save_settings()
-        self.machine._log("info", f"Arbeitsbereich laut Plotter-Firmware: {fx:g} × {fy:g} mm"
-                          + (" – Software-Endschalter aktiv, gelten ab der Einschaltposition"
+        self.machine._log("info", f"Work area reported by firmware: {fx:g} × {fy:g} mm"
+                          + (" – soft limits on, measured from the power-on position"
                              if fw.get(20) else ""))
         vxy, vz = speed_limits(fw)
         if vxy:
-            self.machine._log("info", f"Max. Geschwindigkeit laut Firmware: X/Y {vxy:g} mm/min, Z {vz:g} mm/min")
+            self.machine._log("info", f"Max speed reported by firmware: X/Y {vxy:g} mm/min, Z {vz:g} mm/min")
         changed = clamp_speeds(m, fw)
         if changed:
             self.save_settings()
-            self.machine._log("warn", "Auf Firmware-Maximum begrenzt: " + ", ".join(changed))
+            self.machine._log("warn", "Capped at firmware maximum: " + ", ".join(changed))
 
     # ------------------------------------------------------------ Dokument
     def upload(self, name, data: bytes):
@@ -207,7 +207,7 @@ class App:
         if hidden is not None:
             self.hidden = set(hidden)
         if self.raw is None:
-            return {"error": "Keine Datei geladen"}
+            return {"error": "No file loaded"}
         t0 = time.time()
         polys = self.raw.polylines
         mode = opts.get("group", "auto")
@@ -363,17 +363,17 @@ class App:
     # ------------------------------------------------------------------ Job
     def start_job(self, body):
         if self.job and self.job.state in ("läuft", "pausiert", "stiftwechsel"):
-            return {"error": "Es läuft bereits ein Plot"}
+            return {"error": "A plot is already running"}
         if not self.machine.connected:
-            return {"error": "Plotter nicht verbunden"}
+            return {"error": "Plotter not connected"}
         if self.doc is None:
-            return {"error": "Keine Datei geladen"}
+            return {"error": "No file loaded"}
         m = self.settings["machine"]
         place = body.get("place", self.settings["place"])
         by_id = {l["id"]: l for l in self.doc["layers"]}
         ids = [i for i in body.get("layers", []) if i in by_id and by_id[i]["count"]]
         if not ids:
-            return {"error": "Keine Ebene ausgewählt"}
+            return {"error": "No layer selected"}
         layers = [by_id[i] for i in ids]
         err = (check_limits(self.doc["bbox"], place, m, self.machine)
                or self.machine.z_check(m["z_up"]) or self.machine.z_check(m["z_down"]))
@@ -420,9 +420,9 @@ class App:
         self.settings["place"] = place
         self.save_settings()
         job.start()
-        self.machine._log("info", f"Plot gestartet: {self.doc['name']} – {len(layers)} Ebene(n)"
-                          + (" – rückwärts" if reverse else "")
-                          + (f", ab Ebene {sl + 1} Pfad {sp + 1}" if sp is not None else ""))
+        self.machine._log("info", f"Plot started: {self.doc['name']} – {len(layers)} layer(s)"
+                          + (" – reverse" if reverse else "")
+                          + (f", from layer {sl + 1} path {sp + 1}" if sp is not None else ""))
         threading.Thread(target=self._watch_job, args=(job,), daemon=True).start()
         return {"ok": True}
 
@@ -537,7 +537,7 @@ class Handler(BaseHTTPRequestHandler):
             APP.settings = deep_merge(S, b)
             changed = clamp_speeds(APP.settings["machine"], M.fw)
             if changed:
-                M._log("warn", "Auf Firmware-Maximum begrenzt: " + ", ".join(changed))
+                M._log("warn", "Capped at firmware maximum: " + ", ".join(changed))
             APP.save_settings()
             return APP.settings
         if path == "/api/process":
@@ -549,14 +549,14 @@ class Handler(BaseHTTPRequestHandler):
                 M.connect(b["port"], b.get("baud", 115200))
             except Exception as e:
                 M.disconnect()
-                return {"error": f"Verbindung fehlgeschlagen: {e}. Läuft die UUNA-Software oder ein zweites Nib noch?"}
+                return {"error": f"Connection failed: {e}. Is the UUNA software or a second Nib still running?"}
             return {"ok": True}
         if path == "/api/disconnect":
             M.disconnect()
             return {"ok": True}
 
         if not M.connected:
-            return {"error": "Plotter nicht verbunden"}
+            return {"error": "Plotter not connected"}
 
         # Echtzeit-Befehle gehen immer
         if path == "/api/feedhold":
@@ -582,7 +582,7 @@ class Handler(BaseHTTPRequestHandler):
         changing = APP.job and APP.job.state == "stiftwechsel"
         if busy and not (changing and path in (
                 "/api/jog", "/api/jog/cancel", "/api/pen", "/api/zero", "/api/goto_zero")):
-            return {"error": "Während eines Plots nicht möglich"}
+            return {"error": "Not possible while plotting"}
 
         if path == "/api/command":
             for line in str(b.get("gcode", "")).replace(";", "\n").splitlines():
@@ -600,8 +600,8 @@ class Handler(BaseHTTPRequestHandler):
                 tx = min(max(cx + dx, min(ax0, cx)), max(ax1, cx))
                 ty = min(max(cy + dy, min(ay0, cy)), max(ay1, cy))
                 if abs(tx - (cx + dx)) > 1e-6 or abs(ty - (cy + dy)) > 1e-6:
-                    M._log("warn", f"Verfahren an der Grenze gestoppt (erlaubt X {ax0:.1f}–{ax1:.1f}, "
-                                   f"Y {ay0:.1f}–{ay1:.1f} mm ab Nullpunkt)")
+                    M._log("warn", f"Jog stopped at the limit (allowed X {ax0:.1f}–{ax1:.1f}, "
+                                   f"Y {ay0:.1f}–{ay1:.1f} mm from origin)")
                 dx, dy = tx - cx, ty - cy
             mx, my = G.to_machine(dx, dy, mset)
             parts = []
@@ -616,7 +616,7 @@ class Handler(BaseHTTPRequestHandler):
                     cz = M.status()["wpos"][2]
                     tz = min(max(cz + dz, min(zl[0], cz)), max(zl[1], cz))
                     if abs(tz - (cz + dz)) > 1e-6:
-                        M._log("warn", f"Z an der Grenze gestoppt (erlaubt {zl[0]:.2f} bis {zl[1]:.2f} mm)")
+                        M._log("warn", f"Z stopped at the limit (allowed {zl[0]:.2f} to {zl[1]:.2f} mm)")
                     dz = tz - cz
                 if abs(dz) > 1e-6:
                     parts.append(f"Z{dz:.3f}")
@@ -639,10 +639,10 @@ class Handler(BaseHTTPRequestHandler):
                 st = M.status()
                 err = check_limits(APP.doc["bbox"], APP.job.place, mset, M, wco_xy=st["mpos"][:2])
                 if err:
-                    return {"error": "Nullpunkt hier nicht möglich – " + err}
+                    return {"error": "Can't set the origin here – " + err}
             M.send("G92 X0 Y0", tag="console")
             if changing:
-                M._log("info", "Nullpunkt beim Stiftwechsel neu gesetzt")
+                M._log("info", "Origin reset during pen change")
             M.zero_set = True
             return {"ok": True}
         if path in ("/api/goto_zero", "/api/goto_machine_zero"):
@@ -654,29 +654,29 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 # G53 = Maschinenkoordinaten -> Einschaltposition, Nullpunkt bleibt unverändert
                 move = f"G53 G1 X0 Y0 F{int(mset['feed_travel'])}"
-                M._log("info", "Fahre zum Maschinen-Nullpunkt (Einschaltposition)")
+                M._log("info", "Moving to machine home (power-on position)")
             M.queue_lines([lift, move], None)
             return {"ok": True}
         if path == "/api/unlock":
             if M.state.startswith("Alarm"):
                 # Diese Firmware verlangt nach einem Alarm einen Reset ("Reset to continue").
                 # Nullpunkt bleibt dabei erhalten.
-                M._log("info", "Alarm wird aufgehoben (Reset, Nullpunkt bleibt erhalten)…")
+                M._log("info", "Clearing alarm (reset, origin is kept)…")
                 M.soft_reset_keep_origin(mset["z_up"], mset["z_feed"])
             else:
                 M.send("$X")
             return {"ok": True}
         if path == "/api/frame":
             if APP.doc is None:
-                return {"error": "Keine Datei geladen"}
+                return {"error": "No file loaded"}
             place = b.get("place", S["place"])
             err = check_limits(APP.doc["bbox"], place, mset, M) or M.z_check(mset["z_up"])
             if err:
                 return {"error": err}
             M.queue_lines(G.frame_gcode(APP.doc["bbox"], place, mset), None)
-            M._log("info", "Rahmen wird abgefahren (Stift oben)")
+            M._log("info", "Tracing the frame (pen up)")
             return {"ok": True}
-        return {"error": f"Unbekannter Befehl {path}"}
+        return {"error": f"Unknown command {path}"}
 
 
 def _job_busy():
@@ -690,14 +690,14 @@ def watchdog(srv):
         time.sleep(1)
         if _job_busy():
             if LIFE["bye_at"] and LIFE["last_poll"] < LIFE["bye_at"] and not told:
-                print("Browser geschlossen – Plot läuft weiter, Nib beendet sich danach.")
+                print("Browser closed – the plot continues, Nib exits afterwards.")
                 told = True
             continue
         now = time.time()
         closed = LIFE["bye_at"] and LIFE["last_poll"] < LIFE["bye_at"] and now - LIFE["bye_at"] > BYE_GRACE
         lost = LIFE["seen"] and now - LIFE["last_poll"] > NO_POLL_LIMIT
         if closed or lost:
-            print("Browser geschlossen – Nib wird beendet.")
+            print("Browser closed – Nib is exiting.")
             srv.shutdown()
             return
 
@@ -731,7 +731,7 @@ def main():
         port = int(sys.argv[sys.argv.index("--port") + 1])
     srv = make_server(port)
     url = f"http://127.0.0.1:{port}/"
-    print(f"Nib läuft auf {url}  (Beenden mit Strg+C)")
+    print(f"Nib running at {url}  (Ctrl+C to quit)")
     if not no_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     if "--keep-running" not in sys.argv:

@@ -142,7 +142,7 @@ def load_svg(source, curve_step_mm: float = 0.3) -> LoadResult:
     try:
         svg = SVG.parse(source, reify=True, ppi=96.0)
     except Exception as e:
-        raise ValueError(f"Die Datei ist leer oder kein gültiges SVG ({e}).") from None
+        raise ValueError(f"The file is empty or not a valid SVG ({e}).") from None
     try:
         res.width_mm = float(svg.width) * PX_TO_MM
         res.height_mm = float(svg.height) * PX_TO_MM
@@ -196,24 +196,24 @@ def load_svg(source, curve_step_mm: float = 0.3) -> LoadResult:
 
     for i, child in enumerate(container):
         if isinstance(child, Group):
-            name = _group_label(child) or f"Gruppe {i + 1}"
+            name = _group_label(child) or f"Group {i + 1}"
             # Unterebenen (Illustrator: Ebene > Unterebene) mit Namen merken
             for j, sc in enumerate(child):
                 if isinstance(sc, Group):
-                    sname = _group_label(sc) or f"{name} – Gruppe {j + 1}"
+                    sname = _group_label(sc) or f"{name} – group {j + 1}"
                     for el in sc.select():
                         if el is not sc:
                             handle(el, name, sname)
                 else:
                     handle(sc, name)
         else:
-            handle(child, "Ohne Ebene")
+            handle(child, "No layer")
 
     if skipped_text:
         res.warnings.append(
-            f"{skipped_text} Text-Element(e) ignoriert – in Illustrator vorher 'In Pfade umwandeln'.")
+            f"{skipped_text} text element(s) ignored – convert them to outlines in Illustrator first.")
     if skipped_img:
-        res.warnings.append(f"{skipped_img} Bild(er) ignoriert – nur Vektorpfade werden geplottet.")
+        res.warnings.append(f"{skipped_img} image(s) ignored – only vector paths are plotted.")
     if not res.polylines:
-        res.warnings.append("Keine plotbaren Pfade gefunden.")
+        res.warnings.append("No plottable paths found.")
     return res

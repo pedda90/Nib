@@ -1,135 +1,192 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nib</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 22 5.2 11.6 8.4 2.5h7.2l3.2 9.1z' fill='%23e0502c'/%3E%3Cpath d='M12 22v-9' stroke='%23fff' stroke-width='1.3'/%3E%3Ccircle cx='12' cy='11.2' r='1.7' fill='%23fff'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<script>
+  // Theme vor dem ersten Zeichnen setzen (kein Aufblitzen)
+  try { const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
 </head>
 <body>
+
+<!-- Linien-Icons (1,6 px Strich, 24er Raster) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-nib" viewBox="0 0 24 24"><path d="M12 22 5.2 11.6 8.4 2.5h7.2l3.2 9.1z" fill="currentColor" stroke="none"/><path d="M12 22v-9" stroke="var(--nib-cut)" stroke-width="1.3" fill="none"/><circle cx="12" cy="11.2" r="1.7" fill="var(--nib-cut)" stroke="none"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/></symbol>
+    <symbol id="i-penup" viewBox="0 0 24 24"><path d="m14 4 6 6-9 9H5v-6z"/><path d="M4 22h16" opacity=".45"/></symbol>
+    <symbol id="i-pendown" viewBox="0 0 24 24"><path d="m14 2 6 6-9 9H5v-6z"/><path d="M3 21c3-2 6 1 9-1s6-1 9 0"/></symbol>
+    <symbol id="i-origin" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16"/><circle cx="4" cy="20" r="2.2" fill="currentColor"/><path d="M10 14l4-4M14 14V10h-4" opacity=".55"/></symbol>
+    <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></symbol>
+    <symbol id="i-machine" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 8h5V3"/><circle cx="5.5" cy="5.5" r="1" fill="currentColor"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z" fill="currentColor" stroke-linejoin="round"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" stroke-width="3"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor"/></symbol>
+    <symbol id="i-open" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1"/><path d="M3 7v11a2 2 0 0 0 2 2h13l3-8H7l-3 7"/></symbol>
+    <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+    <symbol id="i-auto" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v16a8 8 0 0 0 0-16z" fill="currentColor"/></symbol>
+    <symbol id="i-pick" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+    <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.7"/><path d="M4 4v5h5"/></symbol>
+    <symbol id="i-frame" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1" stroke-dasharray="3 2.5"/></symbol>
+    <symbol id="i-center" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" opacity=".5"/><rect x="8" y="8" width="8" height="8" rx="1"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" opacity=".5"/><path d="M7 11V7h4M17 13v4h-4M7 7l4 4M17 17l-4-4"/></symbol>
+    <symbol id="i-one" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" opacity=".5"/><path d="M10 9l2-1.5V16M10 16h4"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="m7 14 5-5 5 5"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-z" viewBox="0 0 24 24"><path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4"/></symbol>
+  </defs>
+</svg>
+
 <header class="topbar">
-  <div class="brand">Nib</div>
+  <div class="brand" title="Nib – Every line, by the pen.">
+    <svg class="mark"><use href="#i-nib"/></svg>
+    <span class="word">Nib</span>
+    <span class="tag">Pen plotter control</span>
+  </div>
   <div class="conn">
-    <select id="port" title="Schnittstelle"></select>
-    <button id="btnPorts" class="icon" title="Schnittstellen neu suchen">⟳</button>
-    <select id="baud" title="Baudrate">
+    <select id="port" title="Serial port"></select>
+    <button id="btnPorts" class="ib" title="Rescan ports"><svg class="ic"><use href="#i-refresh"/></svg></button>
+    <select id="baud" title="Baud rate">
       <option>115200</option><option>250000</option><option>57600</option><option>9600</option>
     </select>
-    <button id="btnConnect" class="primary">Verbinden</button>
+    <button id="btnConnect" class="primary">Connect</button>
   </div>
-  <div class="status">
-    <span id="statePill" class="pill off">Getrennt</span>
-    <span class="pos">X <b id="posX">–</b> Y <b id="posY">–</b> Z <b id="posZ">–</b></span>
-  </div>
-  <button id="btnEstop" class="danger" title="Sofort anhalten – Plot wird abgebrochen, Nullpunkt bleibt erhalten">■ STOPP</button>
+  <span class="spacer"></span>
+  <button id="btnTheme" class="ib" title="Theme: system"><svg class="ic"><use href="#i-auto"/></svg></button>
+  <button id="btnEstop" class="estop" title="Stop immediately – aborts the plot, origin is kept"><svg class="ic"><use href="#i-stop"/></svg>STOP</button>
 </header>
 
 <main class="layout">
-  <!-- linke Spalte: Steuerung -->
+  <!-- links: Maschine steuern -->
   <aside class="panel left">
-    <section>
-      <h2>Steuerung</h2>
-      <div class="jog">
-        <button data-jog="-1,-1">↖</button><button data-jog="0,-1">↑</button><button data-jog="1,-1">↗</button>
-        <button data-jog="-1,0">←</button><button id="btnGoZero" title="Zum Nullpunkt fahren">⌂</button><button data-jog="1,0">→</button>
-        <button data-jog="-1,1">↙</button><button data-jog="0,1">↓</button><button data-jog="1,1">↘</button>
+    <section id="secJog">
+      <h2>Jog</h2>
+      <div class="jogwrap">
+        <div class="jog">
+          <button data-jog="-1,-1" title="Up-left"><svg class="ic r315"><use href="#i-arrow"/></svg></button>
+          <button data-jog="0,-1" title="Up"><svg class="ic"><use href="#i-arrow"/></svg></button>
+          <button data-jog="1,-1" title="Up-right"><svg class="ic r45"><use href="#i-arrow"/></svg></button>
+          <button data-jog="-1,0" title="Left"><svg class="ic r270"><use href="#i-arrow"/></svg></button>
+          <button id="btnGoZero" class="hub" title="Go to origin"><svg class="ic"><use href="#i-home"/></svg></button>
+          <button data-jog="1,0" title="Right"><svg class="ic r90"><use href="#i-arrow"/></svg></button>
+          <button data-jog="-1,1" title="Down-left"><svg class="ic r225"><use href="#i-arrow"/></svg></button>
+          <button data-jog="0,1" title="Down"><svg class="ic r180"><use href="#i-arrow"/></svg></button>
+          <button data-jog="1,1" title="Down-right"><svg class="ic r135"><use href="#i-arrow"/></svg></button>
+        </div>
       </div>
       <div class="seg" id="jogStep">
-        <button data-step="0.1">0,1</button><button data-step="1">1</button><button data-step="10" class="on">10</button><button data-step="50">50</button><input type="number" id="jogCustom" value="10" min="0.01" step="any" title="Schrittweite frei eingeben"><span class="unit">mm</span>
+        <button data-step="0.1">0.1</button><button data-step="1">1</button><button data-step="10" class="on">10</button><button data-step="50">50</button>
+        <span class="uf small"><input type="number" id="jogCustom" value="10" min="0.01" step="any" title="Custom step"><i>mm</i></span>
       </div>
       <div class="row2">
-        <button id="btnPenUp">Stift hoch</button>
-        <button id="btnPenDown">Stift runter</button>
+        <button id="btnPenUp" title="Pen up (Page Up)"><svg class="ic"><use href="#i-penup"/></svg>Pen up</button>
+        <button id="btnPenDown" title="Pen down (Page Down)"><svg class="ic"><use href="#i-pendown"/></svg>Pen down</button>
       </div>
       <div class="row2">
-        <button id="btnZero" class="accent" title="Aktuelle Stiftposition wird zur oberen linken Blattecke (0/0)">Nullpunkt hier</button>
-        <button id="btnUnlock" title="Alarm aufheben">Entsperren</button>
+        <button id="btnZero" class="accent" title="Make the current pen position the top-left corner of the sheet (0/0)"><svg class="ic"><use href="#i-origin"/></svg>Set origin</button>
+        <button id="btnUnlock" title="Clear alarm (origin is kept)"><svg class="ic"><use href="#i-unlock"/></svg>Unlock</button>
       </div>
-      <button id="btnMachineZero" class="wide" title="Stift hoch und zurück zur Position, an der der Plotter eingeschaltet wurde. Dein Nullpunkt bleibt erhalten.">Zum Maschinen-Nullpunkt</button>
-      <div class="zbox">
-        <div class="zhead">Stifthöhe Z <b id="zNow">–</b> mm <small>(0 = ganz oben, größer = tiefer)</small></div>
-        <div class="row4">
-          <button data-zjog="-0.5" title="Z 0,5 mm nach oben">▲ 0,5</button>
-          <button data-zjog="-0.1" title="Z 0,1 mm nach oben">▲ 0,1</button>
-          <button data-zjog="0.1" title="Z 0,1 mm nach unten">▼ 0,1</button>
-          <button data-zjog="0.5" title="Z 0,5 mm nach unten">▼ 0,5</button>
-        </div>
-        <div class="row2">
-          <button id="btnZasUp" title="Aktuelle Z-Höhe als „Stift oben“ übernehmen">= Stift oben</button>
-          <button id="btnZasDown" title="Aktuelle Z-Höhe als „Stift unten“ übernehmen">= Stift unten</button>
-        </div>
-      </div>
-      <p class="hint">Pfeiltasten verfahren, Bild↑/Bild↓ = Stift hoch/runter, Leertaste = Plot pausieren.</p>
+      <button id="btnMachineZero" class="wide quiet" title="Lift the pen and return to the power-on position. Your origin is kept."><svg class="ic"><use href="#i-machine"/></svg>Machine home</button>
+      <p class="hint">Arrow keys jog · PgUp/PgDn pen up/down · Space pauses the plot</p>
     </section>
 
-    <section>
-      <h2>Geschwindigkeit &amp; Stift</h2>
-      <label>Zeichnen <span class="uf"><input type="number" data-set="machine.feed_draw" step="100" min="100"><i>mm/min</i></span></label>
-      <label>Leerfahrt <span class="uf"><input type="number" data-set="machine.feed_travel" step="100" min="100"><i>mm/min</i></span></label>
-      <label>Verfahren (Jog) <span class="uf"><input type="number" data-set="machine.jog_feed" step="100" min="100"><i>mm/min</i></span></label>
-      <label>Stift oben (Z) <span class="uf"><input type="number" data-set="machine.z_up" step="0.1"><i>mm</i></span></label>
-      <label>Stift unten (Z) <span class="uf"><input type="number" data-set="machine.z_down" step="0.1"><i>mm</i></span></label>
-      <label>Z-Geschwindigkeit <span class="uf"><input type="number" data-set="machine.z_feed" step="100" min="100"><i>mm/min</i></span></label>
-      <label>Pause nach Absetzen <span class="uf"><input type="number" data-set="machine.pen_down_delay" step="0.05" min="0"><i>s</i></span></label>
-      <label>Pause nach Anheben <span class="uf"><input type="number" data-set="machine.pen_up_delay" step="0.05" min="0"><i>s</i></span></label>
-      <p class="hint" id="speedHint"></p>
+    <section id="secZ">
+      <h2>Pen height <span class="h-val">Z <b id="zNow">–</b> mm</span></h2>
+      <div class="row4">
+        <button data-zjog="-0.5" title="Z up 0.5 mm"><svg class="ic sm"><use href="#i-up"/></svg>0.5</button>
+        <button data-zjog="-0.1" title="Z up 0.1 mm"><svg class="ic sm"><use href="#i-up"/></svg>0.1</button>
+        <button data-zjog="0.1" title="Z down 0.1 mm"><svg class="ic sm"><use href="#i-down"/></svg>0.1</button>
+        <button data-zjog="0.5" title="Z down 0.5 mm"><svg class="ic sm"><use href="#i-down"/></svg>0.5</button>
+      </div>
+      <div class="row2">
+        <button id="btnZasUp" title="Use the current Z as “pen up”">Set as up</button>
+        <button id="btnZasDown" title="Use the current Z as “pen down”">Set as down</button>
+      </div>
+      <p class="hint">0 = fully up, larger = lower.</p>
     </section>
 
-    <section>
-      <h2>Achsen</h2>
-      <label class="chk"><input type="checkbox" data-set="machine.invert_x"> X umkehren</label>
-      <label class="chk"><input type="checkbox" data-set="machine.invert_y"> Y umkehren</label>
-      <label class="chk"><input type="checkbox" data-set="machine.swap_xy"> X/Y tauschen</label>
-      <h2 style="margin-top:12px">Arbeitsbereich</h2>
-      <label class="chk"><input type="checkbox" data-set="machine.limits_on"> Grenzen einhalten</label>
-      <label>Max. X <span class="uf"><input type="number" data-set="machine.max_x" step="1" min="1"><i>mm</i></span></label>
-      <label>Max. Y <span class="uf"><input type="number" data-set="machine.max_y" step="1" min="1"><i>mm</i></span></label>
-      <p class="hint" title="Gilt ab der Einschaltposition (Ecke). Verfahren stoppt an der Grenze, Plots und Rahmen außerhalb werden nicht gestartet. Standard ist die Grenze der Plotter-Firmware (420 × 297 mm), ein kleinerer Wert bleibt erhalten. Mit „Rahmen abfahren“ prüfen: Der Stift muss die Kontur der Vorschau nachfahren.">Ab Einschaltposition, rot gestrichelt in der Vorschau. ⓘ</p>
+    <section id="secSpeed" class="fold">
+      <h2>Speed &amp; pen</h2>
+      <div class="body">
+        <label>Drawing <span class="uf"><input type="number" data-set="machine.feed_draw" step="100" min="100"><i>mm/min</i></span></label>
+        <label>Travel <span class="uf"><input type="number" data-set="machine.feed_travel" step="100" min="100"><i>mm/min</i></span></label>
+        <label>Jog <span class="uf"><input type="number" data-set="machine.jog_feed" step="100" min="100"><i>mm/min</i></span></label>
+        <label>Pen up (Z) <span class="uf"><input type="number" data-set="machine.z_up" step="0.1"><i>mm</i></span></label>
+        <label>Pen down (Z) <span class="uf"><input type="number" data-set="machine.z_down" step="0.1"><i>mm</i></span></label>
+        <label>Z speed <span class="uf"><input type="number" data-set="machine.z_feed" step="100" min="100"><i>mm/min</i></span></label>
+        <label>Delay after down <span class="uf"><input type="number" data-set="machine.pen_down_delay" step="0.05" min="0"><i>s</i></span></label>
+        <label>Delay after up <span class="uf"><input type="number" data-set="machine.pen_up_delay" step="0.05" min="0"><i>s</i></span></label>
+        <p class="hint" id="speedHint"></p>
+      </div>
+    </section>
+
+    <section id="secMachine" class="fold">
+      <h2>Machine</h2>
+      <div class="body">
+        <label class="chk"><input type="checkbox" data-set="machine.invert_x"> Invert X</label>
+        <label class="chk"><input type="checkbox" data-set="machine.invert_y"> Invert Y</label>
+        <label class="chk"><input type="checkbox" data-set="machine.swap_xy"> Swap X/Y</label>
+        <div class="sub">Work area</div>
+        <label class="chk"><input type="checkbox" data-set="machine.limits_on"> Enforce limits</label>
+        <label>Max X <span class="uf"><input type="number" data-set="machine.max_x" step="1" min="1"><i>mm</i></span></label>
+        <label>Max Y <span class="uf"><input type="number" data-set="machine.max_y" step="1" min="1"><i>mm</i></span></label>
+        <p class="hint" title="Measured from the power-on position (corner). Jogging stops at the limit; plots and frames outside are not started. Default is the plotter firmware limit (420 × 297 mm); a smaller value is kept. Check with “Trace frame”: the pen must follow the outline in the preview.">From the power-on corner, dashed in the preview. ⓘ</p>
+      </div>
     </section>
   </aside>
-  <div class="gutter gv" data-g="lw" title="Ziehen: Breite ändern · Doppelklick: Standard"></div>
+  <div class="gutter gv" data-g="lw" title="Drag to resize · double-click to reset"></div>
 
   <!-- Mitte: Vorschau -->
   <section class="stage">
     <div class="stagebar">
-      <button id="btnOpen" class="primary">Datei öffnen</button>
+      <button id="btnOpen" class="primary"><svg class="ic"><use href="#i-open"/></svg>Open SVG</button>
       <input type="file" id="file" accept=".svg,image/svg+xml" hidden>
-      <span id="docInfo" class="muted">Keine Datei geladen</span>
+      <span id="docInfo" class="muted">No file loaded</span>
       <span id="warnings"></span>
-      <span class="sep"></span>
-      <select id="paper">
-        <option value="420x297">A3 quer</option><option value="297x420">A3 hoch</option>
-        <option value="297x210">A4 quer</option><option value="210x297">A4 hoch</option>
-        <option value="custom">Eigenes Format…</option>
+      <span class="spacer"></span>
+      <select id="paper" title="Paper">
+        <option value="420x297">A3 landscape</option><option value="297x420">A3 portrait</option>
+        <option value="297x210">A4 landscape</option><option value="210x297">A4 portrait</option>
+        <option value="custom">Custom…</option>
       </select>
       <span id="customPaper" hidden>
         <input type="number" id="paperW" step="1"> × <input type="number" id="paperH" step="1"> mm
       </span>
-      <label class="chk"><input type="checkbox" id="showTravel"> Leerfahrten</label>
-      <span class="spacer"></span>
-      <button id="btnFit" class="icon" title="Ansicht einpassen">⤢</button>
+      <label class="chk toggle" title="Show pen-up travel moves"><input type="checkbox" id="showTravel"> Travel</label>
+      <button id="btnFit" class="ib" title="Fit view"><svg class="ic"><use href="#i-fit"/></svg></button>
     </div>
     <div id="canvasWrap">
       <canvas id="cv"></canvas>
       <div id="drop" class="drop">
-        <div>SVG hier hineinziehen<br><small>oder oben „Datei öffnen“</small></div>
+        <div><svg class="ic xl"><use href="#i-nib"/></svg><br>Drop an SVG here<br><small>or use “Open SVG” above</small></div>
       </div>
-      <div id="busy" class="busy" hidden>Datei wird verarbeitet…</div>
+      <div id="busy" class="busy" hidden>Processing…</div>
     </div>
-    <div class="gutter gh" data-g="ch" title="Ziehen: Höhe der Konsole ändern · Doppelklick: Standard"></div>
+    <div class="gutter gh" data-g="ch" title="Drag to resize the console · double-click to reset"></div>
     <div class="console">
       <div id="log"></div>
-      <form id="cmdForm"><input id="cmd" placeholder="G-Code oder $-Befehl senden (z. B. $$)" autocomplete="off"><button>Senden</button></form>
+      <form id="cmdForm"><input id="cmd" placeholder="Send G-code or $ command (e.g. $$)" autocomplete="off"><button class="ib" title="Send"><svg class="ic"><use href="#i-send"/></svg></button></form>
     </div>
   </section>
-  <div class="gutter gv" data-g="rw" title="Ziehen: Breite ändern · Doppelklick: Standard"></div>
+  <div class="gutter gv" data-g="rw" title="Drag to resize · double-click to reset"></div>
 
-  <!-- rechte Spalte: Platzierung & Plot -->
+  <!-- rechts: Platzierung, Optimierung, Ebenen, Plot -->
   <aside class="panel right">
-    <section>
-      <h2>Platzierung</h2>
+    <section id="secPlace">
+      <h2>Placement</h2>
       <div class="placetop">
-        <div id="anchor" class="anchor" title="Bezugspunkt für X/Y: auf welche Ecke/Mitte des Designs sich die Koordinaten beziehen">
+        <div id="anchor" class="anchor" title="Reference point for X/Y: which corner/center of the design the coordinates refer to">
           <button data-a="0,0"></button><button data-a="0.5,0"></button><button data-a="1,0"></button>
           <button data-a="0,0.5"></button><button data-a="0.5,0.5"></button><button data-a="1,0.5"></button>
           <button data-a="0,1"></button><button data-a="0.5,1"></button><button data-a="1,1"></button>
@@ -140,68 +197,81 @@
         </div>
       </div>
       <div class="grid2">
-        <label>Breite <span class="uf"><input type="number" id="plW" step="1"><i>mm</i></span></label>
-        <label>Höhe <span class="uf"><input type="number" id="plH" step="1"><i>mm</i></span></label>
-        <label>Maßstab <span class="uf"><input type="number" id="plS" step="1"><i>%</i></span></label>
-        <label>Drehung <span><select id="plR"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></span></label>
+        <label>Width <span class="uf"><input type="number" id="plW" step="1"><i>mm</i></span></label>
+        <label>Height <span class="uf"><input type="number" id="plH" step="1"><i>mm</i></span></label>
+        <label>Scale <span class="uf"><input type="number" id="plS" step="1"><i>%</i></span></label>
+        <label>Rotation <span><select id="plR"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></span></label>
       </div>
       <div class="row3">
-        <button id="btnCenter">Zentrieren</button>
-        <button id="btnFitPaper">Einpassen</button>
-        <button id="btnOrig">100 %</button>
+        <button id="btnCenter" title="Center on the sheet"><svg class="ic"><use href="#i-center"/></svg>Center</button>
+        <button id="btnFitPaper" title="Scale to fit the sheet (10 mm margin)"><svg class="ic"><use href="#i-expand"/></svg>Fit</button>
+        <button id="btnOrig" title="Original size and position from the file"><svg class="ic"><use href="#i-one"/></svg>100 %</button>
       </div>
-      <button id="btnFrame" class="wide" title="Fährt die Außenkontur mit angehobenem Stift ab">Rahmen abfahren</button>
-      <p class="hint">Design in der Vorschau mit der Maus verschieben.</p>
+      <button id="btnFrame" class="wide quiet" title="Traces the outline with the pen up"><svg class="ic"><use href="#i-frame"/></svg>Trace frame</button>
+      <p class="hint">Drag the design in the preview to move it.</p>
     </section>
 
-    <section>
-      <h2>Optimierung</h2>
-      <label>Ebenen bilden nach <span><select data-opt="group">
-        <option value="auto">Automatisch</option><option value="color">Farbe</option>
-        <option value="layer">Ebene/Gruppe</option><option value="none">Alles zusammen</option></select></span></label>
-      <label class="chk"><input type="checkbox" data-opt="sort"> Reihenfolge optimieren</label>
-      <label class="chk"><input type="checkbox" data-opt="merge"> Anschließende Linien verbinden</label>
-      <label class="chk"><input type="checkbox" data-opt="dedupe"> Doppelte Linien entfernen</label>
-      <label>Verbinden bis <span class="uf"><input type="number" data-opt="merge_tol" step="0.05" min="0"><i>mm</i></span></label>
-      <label>Vereinfachen <span class="uf"><input type="number" data-opt="simplify" step="0.01" min="0"><i>mm</i></span></label>
-      <label>Kürzer weglassen <span class="uf"><input type="number" data-opt="min_len" step="0.1" min="0"><i>mm</i></span></label>
-      <div class="row2"><button id="btnOptDefaults" title="Alle Optimierungs-Einstellungen auf die Standardwerte zurücksetzen">Standardwerte</button><button id="btnProcess">Neu berechnen</button></div>
+    <section id="secOpt" class="fold">
+      <h2>Optimization</h2>
+      <div class="body">
+        <label>Group layers by <span><select data-opt="group">
+          <option value="auto">Automatic</option><option value="color">Color</option>
+          <option value="layer">Layer/group</option><option value="none">Everything</option></select></span></label>
+        <label class="chk"><input type="checkbox" data-opt="sort"> Optimize order</label>
+        <label class="chk"><input type="checkbox" data-opt="merge"> Join connecting lines</label>
+        <label class="chk"><input type="checkbox" data-opt="dedupe"> Remove duplicates</label>
+        <label>Join within <span class="uf"><input type="number" data-opt="merge_tol" step="0.05" min="0"><i>mm</i></span></label>
+        <label>Simplify <span class="uf"><input type="number" data-opt="simplify" step="0.01" min="0"><i>mm</i></span></label>
+        <label>Drop shorter than <span class="uf"><input type="number" data-opt="min_len" step="0.1" min="0"><i>mm</i></span></label>
+        <div class="row2"><button id="btnOptDefaults" title="Reset all optimization settings to their defaults">Defaults</button><button id="btnProcess">Recalculate</button></div>
+      </div>
     </section>
 
-    <section>
-      <h2>Ebenen <small id="totalTime"></small></h2>
+    <section id="secLayers">
+      <h2>Layers <small id="totalTime"></small></h2>
       <div id="layers" class="layers muted">–</div>
-      <label class="chk"><input type="checkbox" data-set="job.pen_change"> Zwischen Ebenen pausieren (Stiftwechsel)</label>
-      <label class="chk"><input type="checkbox" data-set="job.go_home"> Am Ende zum Nullpunkt</label>
+      <label class="chk"><input type="checkbox" data-set="job.pen_change"> Pause between layers (pen change)</label>
+      <label class="chk"><input type="checkbox" data-set="job.go_home"> Return to origin at the end</label>
     </section>
 
-    <section class="plot">
+    <section id="secPlot" class="plot">
       <h2>Plot</h2>
       <div id="resumeBox" class="resume" hidden></div>
       <div id="penChange" class="penchange" hidden></div>
       <div class="progress"><div id="progBar"></div></div>
-      <div id="progText" class="muted">Bereit</div>
-      <div class="row3">
-        <button id="btnStart" class="primary">▶ Start</button>
-        <button id="btnPause">❚❚ Pause</button>
-        <button id="btnStop" class="danger">■ Stopp</button>
+      <div id="progText" class="muted">Ready</div>
+      <div class="row3 plotbtns">
+        <button id="btnStart" class="primary"><svg class="ic"><use href="#i-play"/></svg>Plot</button>
+        <button id="btnPause"><svg class="ic"><use href="#i-pause"/></svg>Pause</button>
+        <button id="btnStop" class="danger"><svg class="ic"><use href="#i-stop"/></svg>Stop</button>
       </div>
-      <label class="chk" title="Pfade in umgekehrter Reihenfolge plotten – z. B. wenn die Farbe ausgegangen ist und man das Ende zuerst nachholen will">
-        <input type="checkbox" data-set="job.reverse" id="chkReverse"> Rückwärts plotten (vom Ende zum Anfang)</label>
+      <label class="chk" title="Plot paths in reverse order – e.g. when the ink ran out and you want to finish the end first">
+        <input type="checkbox" data-set="job.reverse" id="chkReverse"> Plot in reverse (end to start)</label>
       <div class="startbox">
-        <div class="startinfo"><b>Startpunkt:</b> <span id="startInfo">von Anfang</span></div>
+        <div class="startinfo"><span class="k">Start from</span> <span id="startInfo">beginning</span></div>
         <div class="row2">
-          <button id="btnPick" title="In die Vorschau klicken, um den Pfad zu wählen, bei dem der Plot beginnen soll">⌖ In Vorschau wählen</button>
-          <button id="btnStartReset">Zurücksetzen</button>
+          <button id="btnPick" title="Click a path in the preview to start the plot there"><svg class="ic"><use href="#i-pick"/></svg>Pick in preview</button>
+          <button id="btnStartReset"><svg class="ic"><use href="#i-reset"/></svg>Reset</button>
         </div>
         <div class="grid2">
-          <label>Ebene <span><select id="startLayer"></select></span></label>
-          <label>Pfad Nr. <span><input type="number" id="startPath" min="1" value="1"></span></label>
+          <label>Layer <span><select id="startLayer"></select></span></label>
+          <label>Path no. <span class="uf"><input type="number" id="startPath" min="1" value="1"><i></i></span></label>
         </div>
       </div>
     </section>
   </aside>
 </main>
+
+<footer class="statusbar">
+  <span id="statePill" class="state off">Disconnected</span>
+  <span class="sb-pos">X <b id="posX">–</b></span>
+  <span class="sb-pos">Y <b id="posY">–</b></span>
+  <span class="sb-pos">Z <b id="posZ">–</b></span>
+  <span id="sbOrigin" class="sb-note"></span>
+  <span class="spacer"></span>
+  <span id="sbJob" class="sb-note"></span>
+  <span class="sb-claim">Every line, by the pen.</span>
+</footer>
 <script src="app.js"></script>
 </body>
 </html>

@@ -26,7 +26,7 @@ async function api(path, body) {
     if (j && j.error) logLocal("err", j.error);
     return j;
   } catch (e) {
-    logLocal("err", "Server nicht erreichbar – läuft Nib noch?");
+    logLocal("err", "Can't reach the Nib server – is it still running?");
     return { error: String(e) };
   }
 }
@@ -37,7 +37,7 @@ function setPath(o, p, v) {
   a[ks[ks.length - 1]] = v;
 }
 function nested(p, v) { const o = {}; setPath(o, p, v); return o; }
-const fmtNum = (v, d = 0) => Number(v).toLocaleString("de-AT", { maximumFractionDigits: d, minimumFractionDigits: d });
+const fmtNum = (v, d = 0) => Number(v).toLocaleString("en-US", { maximumFractionDigits: d, minimumFractionDigits: d });
 function fmtTime(sec) {
   sec = Math.max(0, Math.round(sec));
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
@@ -64,10 +64,10 @@ function applySpeedLimits(v) {
   for (const k of ["feed_draw", "feed_travel", "jog_feed", "z_feed"]) {
     const el = $(`[data-set="machine.${k}"]`);
     const lim = k === "z_feed" ? vz : vxy;
-    if (lim) { el.max = lim; el.title = `max. ${lim} mm/min (Plotter-Firmware)`; }
+    if (lim) { el.max = lim; el.title = `max ${lim} mm/min (plotter firmware)`; }
     else { el.removeAttribute("max"); el.title = ""; }
   }
-  $("#speedHint").textContent = vxy ? `Maximum laut Plotter: X/Y ${fmtNum(vxy)} mm/min, Z ${fmtNum(vz)} mm/min` : "";
+  $("#speedHint").textContent = vxy ? `Plotter maximum: X/Y ${fmtNum(vxy)} mm/min, Z ${fmtNum(vz)} mm/min` : "";
 }
 function deepMerge(a, b) {
   const o = { ...a };
@@ -112,6 +112,48 @@ function layerSeconds(l) {
   const delays = (+m.pen_up_delay || 0) + (+m.pen_down_delay || 0);
   return (l.draw_len * s / fd + l.travel_len * s / ft + l.lifts * (zt + delays + 0.05)) * 1.15;
 }
+
+// --------------------------------------------------------------- Theme
+// Farben für die Vorschau kommen aus den CSS-Variablen (hell/dunkel)
+let TC = {};
+function readTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const k of ["accent", "accent-text", "text", "muted", "faint", "bad", "ok", "paper", "grid", "table", "panel"])
+    TC[k] = cs.getPropertyValue("--" + k).trim();
+  TC.dark = cs.getPropertyValue("color-scheme").trim() === "dark";
+}
+const THEMES = ["system", "light", "dark"];
+const THEME_ICON = { system: "#i-auto", light: "#i-sun", dark: "#i-moon" };
+function applyTheme(t) {
+  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  $("#btnTheme use").setAttribute("href", THEME_ICON[t] || THEME_ICON.system);
+  $("#btnTheme").title = `Theme: ${t} (click to change)`;
+  readTheme(); scheduleDraw();
+}
+let theme = "system";
+try { theme = localStorage.getItem("theme") || "system"; } catch (e) { /* egal */ }
+$("#btnTheme").onclick = () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  try { localStorage.setItem("theme", theme); } catch (e) { /* egal */ }
+  applyTheme(theme);
+};
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readTheme(); scheduleDraw(); });
+
+// Einklappbare Bereiche (Zustand wird gemerkt)
+(function folds() {
+  let F = {};
+  try { F = JSON.parse(localStorage.getItem("folds")) || {}; } catch (e) { F = {}; }
+  const DEFAULT_CLOSED = { secMachine: true, secOpt: true };
+  $$("section.fold").forEach((sec) => {
+    const closed = sec.id in F ? F[sec.id] : !!DEFAULT_CLOSED[sec.id];
+    sec.classList.toggle("closed", closed);
+    sec.querySelector("h2").onclick = () => {
+      F[sec.id] = sec.classList.toggle("closed");
+      try { localStorage.setItem("folds", JSON.stringify(F)); } catch (e) { /* egal */ }
+    };
+  });
+})();
 
 // --------------------------------------------------------------- Canvas
 const cv = $("#cv"), ctx = cv.getContext("2d");
@@ -165,18 +207,22 @@ function draw() {
   const W = cv.width / d, H = cv.height / d;
   ctx.clearRect(0, 0, W, H);
 
-  // Blatt
+  // Blatt mit weichem Schatten
   const [px, py] = toScreen(0, 0);
   const pw = S.paper.w * view.s, ph = S.paper.h * view.s;
   ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 18;
-  ctx.fillStyle = "#fbfaf7"; ctx.fillRect(px, py, pw, ph);
+  ctx.shadowColor = TC.dark ? "rgba(0,0,0,.65)" : "rgba(60,40,10,.22)"; ctx.shadowBlur = 28; ctx.shadowOffsetY = 4;
+  ctx.fillStyle = TC.paper; ctx.fillRect(px, py, pw, ph);
   ctx.restore();
-  // 10-mm-Raster
-  ctx.strokeStyle = "rgba(0,0,0,.045)"; ctx.lineWidth = 1; ctx.beginPath();
-  for (let x = 10; x < S.paper.w; x += 10) { const [sx] = toScreen(x, 0); ctx.moveTo(Math.round(sx) + .5, py); ctx.lineTo(Math.round(sx) + .5, py + ph); }
-  for (let y = 10; y < S.paper.h; y += 10) { const [, sy] = toScreen(0, y); ctx.moveTo(px, Math.round(sy) + .5); ctx.lineTo(px + pw, Math.round(sy) + .5); }
-  ctx.stroke();
+  ctx.strokeStyle = "rgba(60,40,10,.12)"; ctx.lineWidth = 1; ctx.strokeRect(Math.round(px) + .5, Math.round(py) + .5, Math.round(pw), Math.round(ph));
+  // Raster: 10 mm fein, 50 mm etwas kräftiger
+  for (const [step, alpha] of [[10, 1], [50, 2.2]]) {
+    ctx.strokeStyle = TC.grid; ctx.globalAlpha = Math.min(1, alpha); ctx.lineWidth = alpha > 1 ? 1.2 : 1; ctx.beginPath();
+    for (let x = step; x < S.paper.w; x += step) { const [sx] = toScreen(x, 0); ctx.moveTo(Math.round(sx) + .5, py); ctx.lineTo(Math.round(sx) + .5, py + ph); }
+    for (let y = step; y < S.paper.h; y += step) { const [, sy] = toScreen(0, y); ctx.moveTo(px, Math.round(sy) + .5); ctx.lineTo(px + pw, Math.round(sy) + .5); }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 
   if (doc) {
     const place = makePlacer();
@@ -208,44 +254,52 @@ function draw() {
     }
     drawMarker(place);
     if (showTravel) {
-      ctx.strokeStyle = "rgba(229,83,75,.55)"; ctx.lineWidth = 0.7; ctx.setLineDash([3, 3]);
-      ctx.stroke(travel); ctx.setLineDash([]);
+      ctx.strokeStyle = TC.accent; ctx.globalAlpha = .55; ctx.lineWidth = 0.7; ctx.setLineDash([3, 3]);
+      ctx.stroke(travel); ctx.setLineDash([]); ctx.globalAlpha = 1;
     }
     // Rahmen des Designs
     const [w, h] = placedSize();
     const [bx, by] = toScreen(S.place.x, S.place.y);
-    ctx.strokeStyle = "rgba(47,125,224,.8)"; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
-    ctx.strokeRect(bx, by, w * view.s, h * view.s); ctx.setLineDash([]);
+    ctx.strokeStyle = "rgba(60,45,25,.45)"; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+    ctx.strokeRect(Math.round(bx) + .5, Math.round(by) + .5, w * view.s, h * view.s); ctx.setLineDash([]);
     // Bezugspunkt für X/Y
     const [qx, qy] = toScreen(S.place.x + anchor[0] * w, S.place.y + anchor[1] * h);
-    ctx.fillStyle = "#4f9cf7"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(qx, qy, 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = TC.accent; ctx.strokeStyle = TC.paper; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.rect(qx - 4, qy - 4, 8, 8); ctx.fill(); ctx.stroke();
     const out = ([x0, y0, x1, y1]) => S.place.x < x0 - 0.01 || S.place.y < y0 - 0.01 || S.place.x + w > x1 + 0.01 || S.place.y + h > y1 + 0.01;
-    const msg = S.machine.limits_on && out(area()) ? "Außerhalb des erlaubten Bereichs – Plot wird nicht gestartet"
-      : out([0, 0, S.paper.w, S.paper.h]) ? "Design ragt über das Blatt hinaus" : "";
-    if (msg) { ctx.fillStyle = "#e5534b"; ctx.font = "12px Segoe UI"; ctx.fillText(msg, bx, by - 6); }
+    const msg = S.machine.limits_on && out(area()) ? "Outside the allowed area – the plot won't start"
+      : out([0, 0, S.paper.w, S.paper.h]) ? "Design extends beyond the sheet" : "";
+    if (msg) { ctx.fillStyle = TC.bad; ctx.font = "500 12px 'Plex Sans', sans-serif"; ctx.fillText(msg, bx, by - 7); }
   }
 
   // Arbeitsbereich
   if (S.machine.limits_on) {
     const [x0, y0, x1, y1] = area();
     const [ax, ay] = toScreen(x0, y0);
-    ctx.strokeStyle = "rgba(229,83,75,.7)"; ctx.lineWidth = 1; ctx.setLineDash([2, 4]);
-    ctx.strokeRect(ax, ay, (x1 - x0) * view.s, (y1 - y0) * view.s); ctx.setLineDash([]);
+    ctx.strokeStyle = TC.bad; ctx.globalAlpha = .55; ctx.lineWidth = 1; ctx.setLineDash([2, 4]);
+    ctx.strokeRect(ax, ay, (x1 - x0) * view.s, (y1 - y0) * view.s); ctx.setLineDash([]); ctx.globalAlpha = 1;
   }
 
-  // Nullpunkt
-  ctx.strokeStyle = "#e5534b"; ctx.lineWidth = 1.5; ctx.beginPath();
-  ctx.moveTo(px - 8, py); ctx.lineTo(px + 14, py); ctx.moveTo(px, py - 8); ctx.lineTo(px, py + 14); ctx.stroke();
+  // Nullpunkt: Winkel in der Blattecke
+  ctx.strokeStyle = TC.accent; ctx.lineWidth = 2; ctx.lineCap = "square"; ctx.beginPath();
+  ctx.moveTo(px, py + 16); ctx.lineTo(px, py); ctx.lineTo(px + 16, py); ctx.stroke(); ctx.lineCap = "round";
 
-  // Stiftposition
+  // Plotkopf: Fadenkreuz-Ring; Stift unten = gefüllt
   if (connected()) {
     const [x, y] = machineToPaper(st.wpos[0], st.wpos[1]);
     const [sx, sy] = toScreen(x, y);
     const down = Math.abs(st.wpos[2] - S.machine.z_down) < Math.abs(st.wpos[2] - S.machine.z_up);
-    ctx.beginPath(); ctx.arc(sx, sy, 6, 0, Math.PI * 2);
-    ctx.fillStyle = down ? "rgba(229,83,75,.9)" : "rgba(47,125,224,.25)"; ctx.fill();
-    ctx.strokeStyle = down ? "#e5534b" : "#2f7de0"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,.25)"; ctx.shadowBlur = 4;
+    ctx.beginPath(); ctx.arc(sx, sy, 9, 0, Math.PI * 2);
+    ctx.fillStyle = down ? TC.accent : "rgba(255,255,255,.55)"; ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = down ? TC.paper : "#2a2622"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(sx, sy, 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx - 14, sy); ctx.lineTo(sx - 4, sy); ctx.moveTo(sx + 4, sy); ctx.lineTo(sx + 14, sy);
+    ctx.moveTo(sx, sy - 14); ctx.lineTo(sx, sy - 4); ctx.moveTo(sx, sy + 4); ctx.lineTo(sx, sy + 14);
+    ctx.strokeStyle = down ? TC.accent : "#2a2622"; ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx, sy, 1.6, 0, Math.PI * 2); ctx.fillStyle = down ? TC.paper : "#2a2622"; ctx.fill();
   }
 }
 
@@ -267,15 +321,18 @@ function drawMarker(place) {
   ctx.beginPath();
   let [x, y] = toScreen(...place(p[0], p[1])); ctx.moveTo(x, y);
   for (let i = 2; i < p.length; i += 2) { [x, y] = toScreen(...place(p[i], p[i + 1])); ctx.lineTo(x, y); }
-  ctx.strokeStyle = "#e5534b"; ctx.lineWidth = Math.max(2.5, 0.8 * view.s); ctx.globalAlpha = 1; ctx.stroke();
+  ctx.strokeStyle = TC.accent; ctx.lineWidth = Math.max(2.5, 0.8 * view.s); ctx.globalAlpha = 1; ctx.stroke();
   // Startpunkt des Stifts (vorwärts: Pfadanfang, rückwärts: Pfadende)
   const k = rev ? p.length - 2 : 0;
   const [sx, sy] = toScreen(...place(p[k], p[k + 1]));
   ctx.beginPath(); ctx.arc(sx, sy, 9, 0, Math.PI * 2);
-  ctx.strokeStyle = "#e5534b"; ctx.lineWidth = 2.5; ctx.stroke();
-  ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2); ctx.fillStyle = "#e5534b"; ctx.fill();
-  ctx.font = "bold 12px Segoe UI"; ctx.fillStyle = "#e5534b";
-  ctx.fillText(`Start: ${l.name.split("  ")[0]} · Pfad ${fmtNum(startSel.path + 1)}${rev ? " (rückwärts)" : ""}`, sx + 13, sy - 10);
+  ctx.strokeStyle = TC.accent; ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2); ctx.fillStyle = TC.accent; ctx.fill();
+  const label = `Start · ${l.name.split("  ")[0]} · path ${fmtNum(startSel.path + 1)}${rev ? " (reverse)" : ""}`;
+  ctx.font = "600 12px 'Plex Sans', sans-serif";
+  const tw = ctx.measureText(label).width;
+  ctx.fillStyle = TC.accent; ctx.beginPath(); ctx.roundRect(sx + 12, sy - 26, tw + 14, 20, 4); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.fillText(label, sx + 19, sy - 12);
 }
 
 // Pfad unter dem Mauszeiger suchen (nur eingeschaltete Ebenen)
@@ -305,11 +362,11 @@ function renderStartInfo() {
   const sel = $("#startLayer");
   if (startSel && doc) {
     const l = doc.layers.find((x) => x.id === startSel.id);
-    $("#startInfo").textContent = `Ebene ${ids.indexOf(startSel.id) + 1} „${l.name.split("  ")[0]}“, Pfad ${fmtNum(startSel.path + 1)} von ${fmtNum(l.count)}` + (isReverse() ? " – rückwärts" : "");
+    $("#startInfo").textContent = `layer ${ids.indexOf(startSel.id) + 1} “${l.name.split("  ")[0]}”, path ${fmtNum(startSel.path + 1)} of ${fmtNum(l.count)}` + (isReverse() ? " – reverse" : "");
     sel.value = String(ids.indexOf(startSel.id));
     $("#startPath").value = startSel.path + 1;
   } else {
-    $("#startInfo").textContent = isReverse() ? "vom Ende (letzter Pfad der ersten Ebene)" : "von Anfang";
+    $("#startInfo").textContent = isReverse() ? "the end (last path of the first layer)" : "the beginning";
     $("#startPath").value = "";
   }
 }
@@ -317,7 +374,7 @@ $("#btnPick").onclick = () => {
   pickMode = !pickMode;
   $("#btnPick").classList.toggle("on", pickMode);
   cv.classList.toggle("picking", pickMode);
-  if (pickMode) logLocal("info", "Klicke in der Vorschau auf den Pfad, bei dem der Plot beginnen soll.");
+  if (pickMode) logLocal("info", "Click the path in the preview where the plot should start.");
 };
 $("#btnStartReset").onclick = () => setStartSel(null);
 $("#startLayer").onchange = () => {
@@ -349,7 +406,7 @@ cv.addEventListener("mousedown", (e) => {
     if (hit) {
       setStartSel(hit);
       pickMode = false; $("#btnPick").classList.remove("on"); cv.classList.remove("picking");
-    } else logLocal("warn", "Kein Pfad in der Nähe – näher an eine Linie klicken.");
+    } else logLocal("warn", "No path nearby – click closer to a line.");
     return;
   }
   if (e.button === 0 && overDesign(sx, sy)) drag = { mode: "design", sx, sy, x0: S.place.x, y0: S.place.y };
@@ -425,7 +482,7 @@ $("#paper").onchange = () => {
   }
 };
 ["#paperW", "#paperH"].forEach((id) => $(id).onchange = () => {
-  S.paper = { name: "Eigenes", w: +$("#paperW").value || 100, h: +$("#paperH").value || 100 };
+  S.paper = { name: "Custom", w: +$("#paperW").value || 100, h: +$("#paperH").value || 100 };
   saveSettings({ paper: S.paper }); fitView();
 });
 
@@ -505,18 +562,18 @@ window.addEventListener("drop", (e) => {
 });
 
 async function uploadFile(f) {
-  if (jobActive()) { logLocal("err", "Während eines Plots kann keine neue Datei geladen werden."); return; }
-  if (!/\.svg$/i.test(f.name)) { logLocal("err", "Bitte eine SVG-Datei wählen."); return; }
-  $("#busy").hidden = false; $("#busy").textContent = `„${f.name}“ wird verarbeitet…`;
+  if (jobActive()) { logLocal("err", "You can't load a new file while plotting."); return; }
+  if (!/\.svg$/i.test(f.name)) { logLocal("err", "Please choose an SVG file."); return; }
+  $("#busy").hidden = false; $("#busy").textContent = `Processing “${f.name}”…`;
   try {
     const r = await fetch("/api/upload", { method: "POST", headers: { "X-Filename": encodeURIComponent(f.name) }, body: f });
     const j = await r.json();
     if (j.error) { logLocal("err", j.error); return; }
     const newFile = !doc || doc.hash !== j.doc.hash;
     setDoc(j, newFile);
-    logLocal("info", `${f.name} geladen (${fmtNum(j.took, 1)} s)`);
+    logLocal("info", `${f.name} loaded (${fmtNum(j.took, 1)} s)`);
   } catch (e) {
-    logLocal("err", "Fehler beim Laden: " + e);
+    logLocal("err", "Couldn't load the file: " + e);
   } finally { $("#busy").hidden = true; }
 }
 
@@ -530,10 +587,10 @@ function showOptDefault(el, k) {
   let tag = lbl.querySelector(".def");
   if (!tag) { tag = document.createElement("small"); tag.className = "def"; lbl.appendChild(tag); }
   const opt = el.tagName === "SELECT" ? el.querySelector(`option[value="${d}"]`) : null;
-  const txt = el.type === "checkbox" ? (d ? "an" : "aus") + ")"
+  const txt = el.type === "checkbox" ? (d ? "on" : "off") + ")"
     : el.tagName === "SELECT" ? (opt ? opt.textContent : d)
     : String(d).replace(".", ",") + " mm";
-  tag.textContent = el.type === "checkbox" ? `(Std: ${txt}` : `Standard: ${txt}`;
+  tag.textContent = el.type === "checkbox" ? `(default ${txt}` : `Default: ${txt}`;
   const cur = el.type === "checkbox" ? el.checked : el.tagName === "SELECT" ? el.value : parseFloat(el.value);
   tag.classList.toggle("changed", cur !== d);
 }
@@ -542,12 +599,12 @@ $("#btnOptDefaults").onclick = () => {
   S.optimize = { ...S.optimize, ...DEF.optimize };
   bindSettings();
   $("#btnProcess").classList.add("primary");
-  logLocal("info", "Optimierung auf Standardwerte gesetzt – mit „Neu berechnen“ übernehmen.");
+  logLocal("info", "Optimization reset to defaults – click “Recalculate” to apply.");
 };
 
 $("#btnProcess").onclick = async () => {
   if (!doc) return;
-  $("#busy").hidden = false; $("#busy").textContent = "Wird neu berechnet…";
+  $("#busy").hidden = false; $("#busy").textContent = "Recalculating…";
   const j = await api("/api/process", S.optimize);
   $("#busy").hidden = true;
   $("#btnProcess").classList.remove("primary");
@@ -572,12 +629,13 @@ function setDoc(j, resetPlacement) {
   saveSettings({ place: S.place });
   $("#drop").classList.add("hidden");
   const [w, h] = placedSize();
-  const info = `${fmtNum(doc.bbox[2] - doc.bbox[0], 1)} × ${fmtNum(doc.bbox[3] - doc.bbox[1], 1)} mm · ${doc.layers.length} Ebene(n) · ` +
-    `${fmtNum(doc.layers.reduce((a, l) => a + l.count, 0))} Pfade · Zeichenweg ${fmtNum(doc.layers.reduce((a, l) => a + l.draw_len, 0) / 1000, 1)} m`;
+  const nl = doc.layers.length;
+  const info = `${fmtNum(doc.bbox[2] - doc.bbox[0], 1)} × ${fmtNum(doc.bbox[3] - doc.bbox[1], 1)} mm · ${nl} layer${nl === 1 ? "" : "s"} · ` +
+    `${fmtNum(doc.layers.reduce((a, l) => a + l.count, 0))} paths · ${fmtNum(doc.layers.reduce((a, l) => a + l.draw_len, 0) / 1000, 1)} m of line`;
   $("#docInfo").innerHTML = `<b>${esc(doc.name)}</b> · ${info}`;
   $("#docInfo").title = `${doc.name}\n${info}`;
   const wn = doc.warnings.length;
-  $("#warnings").textContent = wn ? `⚠ ${wn} Hinweis${wn > 1 ? "e" : ""}` : "";
+  $("#warnings").textContent = wn ? `⚠ ${wn} note${wn > 1 ? "s" : ""}` : "";
   $("#warnings").title = doc.warnings.join("\n");
   $("#warnings").onclick = () => doc.warnings.forEach((w) => logLocal("warn", w));
   void w; void h;
@@ -606,8 +664,8 @@ function renderLayers() {
     row.innerHTML = `<input type="checkbox" ${o.on ? "checked" : ""} ${jobActive() ? "disabled" : ""}>
       <span class="sw" style="background:${l.color}"></span>
       <span class="nm" title="${esc(l.name)}">${esc(l.name)}</span>
-      <span class="meta">${fmtNum(l.count)} Pfade<br>${fmtNum(l.draw_len * S.place.scale / 1000, 1)} m · ${fmtTime(secs)}</span>
-      <span class="mv"><button title="nach oben">▲</button><button title="nach unten">▼</button></span>`;
+      <span class="meta">${fmtNum(l.count)} paths<br>${fmtNum(l.draw_len * S.place.scale / 1000, 1)} m · ${fmtTime(secs)}</span>
+      <span class="mv"><button title="Move up"><svg class="ic"><use href="#i-up"/></svg></button><button title="Move down"><svg class="ic"><use href="#i-down"/></svg></button></span>`;
     row.querySelector("input").onchange = (e) => { o.on = e.target.checked; renderLayers(); scheduleDraw(); };
     const [up, dn] = row.querySelectorAll(".mv button");
     up.disabled = i === 0 || jobActive(); dn.disabled = i === order.length - 1 || jobActive();
@@ -636,7 +694,7 @@ async function toggleSub(layerId, name, hide) {
   const key = `${layerId}/${name}`;
   const hidden = new Set(doc.hidden || []);
   if (hide) hidden.add(key); else hidden.delete(key);
-  $("#busy").hidden = false; $("#busy").textContent = "Wird neu berechnet…";
+  $("#busy").hidden = false; $("#busy").textContent = "Recalculating…";
   const j = await api("/api/process", { ...S.optimize, hidden: [...hidden] });
   $("#busy").hidden = true;
   startSel = null;
@@ -645,11 +703,11 @@ async function toggleSub(layerId, name, hide) {
 
 // --------------------------------------------------------------- Plot
 async function startPlot(layerIds, startLayer, startPath, reverse) {
-  if (!connected()) { logLocal("err", "Zuerst den Plotter verbinden."); return; }
-  if (!doc) { logLocal("err", "Zuerst eine Datei laden."); return; }
+  if (!connected()) { logLocal("err", "Connect the plotter first."); return; }
+  if (!doc) { logLocal("err", "Load a file first."); return; }
   layerIds = layerIds.filter((id) => (doc.layers.find((l) => l.id === id) || {}).count);
-  if (!layerIds.length) { logLocal("err", "Keine Ebene ausgewählt."); return; }
-  if (!(st && st.zero_set) && !confirm("Ist der Nullpunkt gesetzt?\n\nDer Stift sollte an der oberen linken Blattecke stehen und dort „Nullpunkt hier“ gedrückt worden sein.\n\nTrotzdem starten?")) return;
+  if (!layerIds.length) { logLocal("err", "No layer selected."); return; }
+  if (!(st && st.zero_set) && !confirm("Is the origin set?\n\nThe pen should sit at the top-left corner of the sheet, and “Set origin” should have been pressed there.\n\nStart anyway?")) return;
   const r = await api("/api/job/start", { layers: layerIds, start_layer: startLayer, start_path: startPath, place: S.place, reverse: !!reverse });
   if (r.ok) { resumeInfo = null; startSel = null; renderResume(); renderStartInfo(); }
 }
@@ -663,7 +721,7 @@ $("#btnPause").onclick = () => {
   if (job.state === "läuft") api("/api/job/pause", {});
   else if (job.state === "pausiert") api("/api/job/resume", {});
 };
-$("#btnStop").onclick = () => { if (jobActive() && confirm("Plot wirklich abbrechen?\n(Du kannst später an dieser Stelle fortsetzen.)")) api("/api/job/stop", {}); };
+$("#btnStop").onclick = () => { if (jobActive() && confirm("Abort the plot?\n(You can resume from this point later.)")) api("/api/job/stop", {}); };
 $("#btnEstop").onclick = () => { if (jobActive()) api("/api/job/stop", {}); else api("/api/reset", {}); };
 
 function renderResume() {
@@ -671,19 +729,19 @@ function renderResume() {
   if (!resumeInfo || jobActive()) { box.hidden = true; return; }
   const r = resumeInfo;
   box.hidden = false;
-  box.innerHTML = `Letzter Plot dieser Datei wurde unterbrochen (${esc(r.time)}):<br>
-    Ebene ${r.layer + 1} „${esc(String(r.layer_name).split("  ")[0])}“, Pfad ${fmtNum(r.path + 1)}${r.reverse ? " (rückwärts)" : ""}.
-    ${r.moved ? "<br><small>Die Linie wurde wiedergefunden, ihre Nummer hat sich durch ein- oder ausgeblendete Unterebenen geändert.</small>" : ""}
-    <button class="primary">Stelle anzeigen &amp; übernehmen</button>`;
+  box.innerHTML = `The last plot of this file was interrupted (${esc(r.time)}):<br>
+    <b>Layer ${r.layer + 1} “${esc(String(r.layer_name).split("  ")[0])}”, path ${fmtNum(r.path + 1)}</b>${r.reverse ? " (reverse)" : ""}.
+    ${r.moved ? "<br><small>The line was found again – its number changed because sublayers were shown or hidden.</small>" : ""}
+    <button class="primary"><svg class="ic"><use href="#i-pick"/></svg>Show &amp; resume here</button>`;
   box.querySelector("button").onclick = () => {
     const ids = doc.layers.map((l) => l.id);
-    if (!r.layer_ids.every((id) => ids.includes(id))) { logLocal("err", "Ebenen passen nicht mehr zur Datei."); return; }
+    if (!r.layer_ids.every((id) => ids.includes(id))) { logLocal("err", "The layers no longer match the file."); return; }
     order = r.layer_ids.map((id) => ({ id, on: true })).concat(ids.filter((id) => !r.layer_ids.includes(id)).map((id) => ({ id, on: false })));
     S.place = r.place; updatePlaceInputs();
     S.job.reverse = !!r.reverse; $("#chkReverse").checked = S.job.reverse; saveSettings({ job: { reverse: S.job.reverse }, place: S.place });
     startSel = { id: r.layer_ids[r.layer], path: r.path };
     renderLayers(); scheduleDraw();
-    logLocal("info", "Fortsetzungs-Punkt übernommen (rot markiert). Bereits Geplottetes ist kräftig, der Rest blass – mit ▶ Start weiterplotten.");
+    logLocal("info", "Resume point set (marked in the preview). Plotted lines are solid, the rest is faded – press Plot to continue.");
   };
 }
 
@@ -691,18 +749,22 @@ function renderJob() {
   const active = jobActive();
   $("#btnStart").disabled = active || !doc || !connected();
   $("#btnPause").disabled = !job || !["läuft", "pausiert"].includes(job.state);
-  $("#btnPause").textContent = job && job.state === "pausiert" ? "▶ Weiter" : "❚❚ Pause";
+  const paused = !!(job && job.state === "pausiert");
+  if ($("#btnPause").dataset.p !== String(paused)) {
+    $("#btnPause").dataset.p = String(paused);
+    $("#btnPause").innerHTML = paused ? '<svg class="ic"><use href="#i-play"/></svg>Resume' : '<svg class="ic"><use href="#i-pause"/></svg>Pause';
+  }
   $("#btnStop").disabled = !active;
   const pc = $("#penChange");
   if (job && job.state === "stiftwechsel") {
     pc.hidden = false;
     const nl = job.layers[job.layer];
-    const html = `🖊 ${esc(job.message)}<br><small>Beim Stoppen geht es später mit Ebene ${job.layer + 1}${nl ? ` „${esc(nl.name)}“` : ""}, Pfad 1 weiter.</small><button class="primary">Weiter – Stift ist gewechselt</button>`;
+    const html = `${esc(job.message)}<br><small>If you stop now, the plot resumes later at layer ${job.layer + 1}${nl ? ` “${esc(nl.name)}”` : ""}, path 1.</small><button class="primary"><svg class="ic"><use href="#i-play"/></svg>Continue – pen changed</button>`;
     if (pc.dataset.html !== html) { pc.innerHTML = html; pc.dataset.html = html; }
     pc.querySelector("button").onclick = () => api("/api/job/resume", {});
   } else { pc.hidden = true; pc.dataset.html = ""; }
 
-  if (!job) { $("#progText").textContent = "Bereit"; $("#progBar").style.width = "0"; return; }
+  if (!job) { $("#progText").textContent = "Ready"; $("#progBar").style.width = "0"; $("#sbJob").textContent = ""; return; }
   let total = 0, done = 0, estTotal = 0, estDone = 0;
   job.layers.forEach((l, i) => {
     const dl = doc && doc.layers.find((x) => x.id === l.id);
@@ -723,15 +785,18 @@ function renderJob() {
   }
   const L = job.layers[Math.min(job.layer, job.layers.length - 1)];
   const parts = [];
-  if (job.state === "fertig") parts.push(`✔ Fertig in ${fmtTime(job.elapsed)}`);
-  else if (job.state === "abgebrochen") parts.push(`✖ ${job.message}`);
+  const stateName = { "läuft": "Plotting", "pausiert": "Paused", "stiftwechsel": "Pen change" }[job.state] || "";
+  if (job.state === "fertig") parts.push(`Done in ${fmtTime(job.elapsed)}`);
+  else if (job.state === "abgebrochen") parts.push(job.message);
   else {
-    parts.push(`${job.state === "pausiert" ? "Pausiert" : job.state === "stiftwechsel" ? "Stiftwechsel" : "Läuft"} · Ebene ${job.layer + 1}/${job.layers.length} „${L ? L.name : ""}“`);
-    parts.push(`Pfad ${fmtNum(job.path + 1)}/${fmtNum(L ? L.count : 0)} · ${fmtNum(efrac * 100, 1)} %`);
-    parts.push(`${fmtTime(job.elapsed)} vergangen · ca. ${fmtTime(remain)} übrig`);
+    parts.push(`${stateName} · layer ${job.layer + 1}/${job.layers.length} “${L ? L.name : ""}”`);
+    parts.push(`Path ${fmtNum(job.path + 1)}/${fmtNum(L ? L.count : 0)} · ${fmtNum(efrac * 100, 1)} %`);
+    parts.push(`${fmtTime(job.elapsed)} elapsed · ~${fmtTime(remain)} left`);
   }
-  if (job.errors) parts.push(`⚠ ${job.errors} Fehler (siehe Konsole)`);
+  if (job.errors) parts.push(`${job.errors} error${job.errors > 1 ? "s" : ""} – see console`);
   $("#progText").innerHTML = parts.map(esc).join("<br>");
+  $("#sbJob").textContent = jobActive() ? `${stateName} · ${fmtNum(efrac * 100, 1)} % · ~${fmtTime(remain)} left`
+    : job.state === "fertig" ? `Done in ${fmtTime(job.elapsed)}` : "";
 }
 
 // --------------------------------------------------------------- Steuerung
@@ -746,15 +811,15 @@ function takeZ(key, label) {
   const z = Math.round(st.wpos[2] * 100) / 100;
   const other = key === "z_up" ? S.machine.z_down : S.machine.z_up;
   if (key === "z_up" ? z >= other : z <= other) {
-    logLocal("warn", `Achtung: „Stift oben“ muss kleiner sein als „Stift unten“ (Z ${z} vs. ${other}).`);
+    logLocal("warn", `Careful: “pen up” must be smaller than “pen down” (Z ${z} vs. ${other}).`);
   }
   S.machine[key] = z;
   saveSettings({ machine: { [key]: z } });
   bindSettings();
-  logLocal("info", `${label} = ${String(z).replace(".", ",")} mm übernommen`);
+  logLocal("info", `${label} set to ${z} mm`);
 }
-$("#btnZasUp").onclick = () => takeZ("z_up", "Stift oben");
-$("#btnZasDown").onclick = () => takeZ("z_down", "Stift unten");
+$("#btnZasUp").onclick = () => takeZ("z_up", "Pen up");
+$("#btnZasDown").onclick = () => takeZ("z_down", "Pen down");
 
 function setJogStep(v) {
   if (!(v > 0)) return;
@@ -814,7 +879,7 @@ $("#btnPorts").onclick = loadPorts;
 $("#btnConnect").onclick = async () => {
   const b = $("#btnConnect");
   if (connected()) { await api("/api/disconnect", {}); return; }
-  b.disabled = true; b.textContent = "Verbinde…";
+  b.disabled = true; b.textContent = "Connecting…";
   await api("/api/connect", { port: $("#port").value, baud: +$("#baud").value });
   b.disabled = false;
 };
@@ -836,7 +901,7 @@ function addLog(e) {
   while (box.childElementCount > 500) box.firstChild.remove();
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
-function logLocal(k, m) { addLog({ k, m, t: new Date().toLocaleTimeString("de-AT") }); }
+function logLocal(k, m) { addLog({ k, m, t: new Date().toLocaleTimeString("en-GB") }); }
 
 // --------------------------------------------------------------- Status
 let lastJobKey = "";
@@ -860,7 +925,7 @@ async function poll() {
     if (key !== lastJobKey) { lastJobKey = key; renderLayers(); }
     if (prevActive && !jobActive() && job && job.state === "abgebrochen" && doc) {
       resumeInfo = { layer_ids: job.layer_ids, layer: job.resume[0], path: job.resume[1], place: S.place, reverse: job.reverse,
-        layer_name: job.layers[job.resume[0]] ? job.layers[job.resume[0]].name : "", time: "eben" };
+        layer_name: job.layers[job.resume[0]] ? job.layers[job.resume[0]].name : "", time: "just now" };
       renderResume();
     }
     scheduleDraw();
@@ -871,18 +936,21 @@ async function poll() {
 }
 function renderStatus() {
   const pill = $("#statePill");
-  const s = st && st.connected ? st.state : "Getrennt";
+  const s = st && st.connected ? st.state : "Disconnected";
   const cls = !st || !st.connected ? "off" : /^Idle/.test(s) ? "idle" : /^(Run|Jog|Home)/.test(s) ? "run" : /^(Hold|Door)/.test(s) ? "hold" : /^Alarm/.test(s) ? "alarm" : "off";
-  const names = { Idle: "Bereit", Run: "Fährt", Jog: "Verfährt", Hold: "Angehalten", Alarm: "Alarm", Door: "Tür", Home: "Referenzfahrt", Sleep: "Ruhezustand", Check: "Prüfmodus" };
-  pill.className = "pill " + cls;
+  const names = { Idle: "Ready", Run: "Running", Jog: "Jogging", Hold: "Hold", Alarm: "Alarm", Door: "Door", Home: "Homing", Sleep: "Sleep", Check: "Check mode" };
+  pill.className = "state " + cls;
   pill.textContent = names[s.split(":")[0]] || s;
   const on = st && st.connected;
   $("#posX").textContent = on ? st.wpos[0].toFixed(2) : "–";
   $("#posY").textContent = on ? st.wpos[1].toFixed(2) : "–";
   $("#posZ").textContent = on ? st.wpos[2].toFixed(2) : "–";
-  $("#zNow").textContent = on ? st.wpos[2].toFixed(2).replace(".", ",") : "–";
+  $("#zNow").textContent = on ? st.wpos[2].toFixed(2) : "–";
+  const so = $("#sbOrigin");
+  so.textContent = !on ? "" : st.zero_set ? "Origin set" : "Origin not set";
+  so.classList.toggle("warn", !!(on && !st.zero_set));
   $("#btnZasUp").disabled = $("#btnZasDown").disabled = !on || jobActive();
-  $("#btnConnect").textContent = on ? "Trennen" : "Verbinden";
+  $("#btnConnect").textContent = on ? "Disconnect" : "Connect";
   $("#btnConnect").classList.toggle("primary", !on);
   $("#port").disabled = on; $("#baud").disabled = on;
   const ctl = on && !jobActive();
@@ -895,6 +963,7 @@ function renderStatus() {
 
 // --------------------------------------------------------------- Start
 (async function init() {
+  applyTheme(theme);
   S = await api("/api/settings");
   DEF = await api("/api/defaults");
   bindSettings();

@@ -20,7 +20,7 @@ def list_ports():
     out = []
     for p in serial.tools.list_ports.comports():
         out.append({"port": p.device, "desc": p.description})
-    out.append({"port": SIM_PORT, "desc": "Simulierter Plotter (zum Testen)"})
+    out.append({"port": SIM_PORT, "desc": "Simulated plotter (for testing)"})
     return out
 
 
@@ -81,7 +81,7 @@ class Machine:
         self.zero_set = False
         self.fw = {}
         self._running = True
-        self.state = "Verbinde…"
+        self.state = "Connecting…"
         threading.Thread(target=self._reader, daemon=True).start()
         # Manche Boards starten beim Öffnen neu und schicken ein Banner. Der UUNA-Plotter
         # tut das nicht -> mit '$I' nach der Version fragen (kein Reset, nichts bewegt sich).
@@ -92,10 +92,10 @@ class Machine:
             self.banner_event.wait(2.0)
         threading.Thread(target=self._sender, daemon=True).start()
         threading.Thread(target=self._poller, daemon=True).start()
-        self._log("info", f"Verbunden mit {port}" + (f" ({self.version})" if self.version else ""))
+        self._log("info", f"Connected to {port}" + (f" ({self.version})" if self.version else ""))
         if not self.version:
-            self._log("warn", "Plotter antwortet nicht – ist die richtige COM-Schnittstelle gewählt "
-                              "und die UUNA-Software geschlossen?")
+            self._log("warn", "The plotter doesn't answer – is the right COM port selected "
+                              "and the UUNA software closed?")
         # Firmware-Einstellungen (u. a. max. Verfahrweg $130/$131) lesen
         self.send("$$", tag=None)
         return True
@@ -112,7 +112,7 @@ class Machine:
             except Exception:
                 pass
         if self.port:
-            self._log("info", "Verbindung getrennt")
+            self._log("info", "Disconnected")
         self.ser = None
         self.port = None
         self.state = "Getrennt"
@@ -130,7 +130,7 @@ class Machine:
             with self._wlock:
                 s.write(data)
         except Exception as e:
-            self._log("err", f"Schreibfehler: {e}")
+            self._log("err", f"Write error: {e}")
             self._running = False
             self.state = "Getrennt"
 
@@ -143,7 +143,7 @@ class Machine:
             try:
                 raw = self.ser.readline()
             except Exception as e:
-                self._log("err", f"Lesefehler: {e} – Verbindung verloren")
+                self._log("err", f"Read error: {e} – connection lost")
                 self._running = False
                 self.state = "Getrennt"
                 break
@@ -200,7 +200,7 @@ class Machine:
                     self.cv.notify_all()
                 if line.startswith("error"):
                     sent = item[1] if item else "?"
-                    msg = f"{line} bei Zeile: {sent}"
+                    msg = f"{line} at line: {sent}"
                     self._log("err", msg)
                     if self.on_error:
                         self.on_error(msg)
@@ -211,7 +211,7 @@ class Machine:
             elif line.startswith("ALARM"):
                 self.last_alarm = line
                 self.state = "Alarm"
-                self._log("err", f"{line} – mit 'Entsperren' freigeben")
+                self._log("err", f"{line} – press 'Unlock' to clear")
                 with self.cv:
                     self.pending.clear()
                     self.cv.notify_all()
@@ -234,7 +234,7 @@ class Machine:
                     self.inflight.clear()
                     self.cv.notify_all()
                 self.banner_event.set()
-                self._log("info", f"Controller gestartet: {line}")
+                self._log("info", f"Controller started: {line}")
                 if self.on_reset:
                     self.on_reset()
             else:
@@ -296,7 +296,7 @@ class Machine:
             self.cv.notify_all()
             raw = list(self._raw)
         self.lost_acks_total += n
-        self._log("warn", f"{n} Bestätigung(en) vom Plotter fehlten – weiter (insgesamt {self.lost_acks_total})")
+        self._log("warn", f"{n} acknowledgement(s) from the plotter went missing – continuing (total {self.lost_acks_total})")
         self._write_diag(n, pend, raw)
 
     DIAG_FILE = "verbindung_diagnose.log"
@@ -386,8 +386,8 @@ class Machine:
         mz = z + self.wco[2]
         if mz < -0.001 or mz > self.fw[132] + 0.001:
             lo, hi = -self.wco[2], self.fw[132] - self.wco[2]
-            return (f"Z {z:g} mm liegt außerhalb des erlaubten Z-Bereichs ({lo:.2f} bis {hi:.2f} mm). "
-                    f"Stifthöhen unter 'Geschwindigkeit & Stift' anpassen.")
+            return (f"Z {z:g} mm is outside the allowed Z range ({lo:.2f} to {hi:.2f} mm). "
+                    f"Adjust the pen heights under 'Pen height'.")
         return None
 
     def z_limits(self):
@@ -499,14 +499,14 @@ class Job:
         if self.state in ("läuft", "pausiert", "stiftwechsel"):
             self._abort = True
             self.state = "abgebrochen"
-            self.message = f"Abbruch durch {text}"
+            self.message = f"Aborted by {text}"
             self._continue.set()
 
     def _reset(self):
         if self.state in ("läuft", "pausiert") and not self._abort:
             self._abort = True
             self.state = "abgebrochen"
-            self.message = "Controller wurde unerwartet neu gestartet"
+            self.message = "The controller restarted unexpectedly"
             self._continue.set()
 
     def resume_point(self):
@@ -535,7 +535,7 @@ class Job:
             if not self.m.connected:
                 self._abort = True
                 self.state = "abgebrochen"
-                self.message = "Verbindung verloren"
+                self.message = "Connection lost"
                 return False
             time.sleep(0.1)
         return False
@@ -557,9 +557,11 @@ class Job:
                 if self.on_progress:
                     self.on_progress(self)
                 self.state = "stiftwechsel"
-                self.message = (f"Stift wechseln für Ebene {li + 1} '{self.layers[li]['name']}' "
-                                f"({self.layers[li]['color']}) – Kopf steht am Nullpunkt. "
-                                f"Du kannst verfahren und den Nullpunkt neu setzen, dann 'Weiter'")
+                nm, col = self.layers[li]["name"], self.layers[li].get("color") or ""
+                self.message = (f"Change pen for layer {li + 1} “{nm}”"
+                                + (f" ({col})" if col and col.lower() not in nm.lower() else "")
+                                + " – the head is at the origin. "
+                                f"You can jog and reset the origin, then continue.")
                 self._continue.clear()
                 self._continue.wait()
                 if self._abort:
@@ -579,8 +581,8 @@ class Job:
         self.m.queue_lines(self.footer(True))
         if self._wait_done():
             self.state = "fertig"
-            self.message = "Plot abgeschlossen"
-            self.m._log("info", f"Plot fertig in {self.elapsed_str()}")
+            self.message = "Plot complete"
+            self.m._log("info", f"Plot finished in {self.elapsed_str()}")
 
     # Steuerung
     def pause(self):
@@ -603,7 +605,7 @@ class Job:
         was = self.state
         self._abort = True
         self.state = "abgebrochen"
-        self.message = "Vom Benutzer gestoppt"
+        self.message = "Stopped by user"
         self._continue.set()
         if was in ("läuft", "pausiert"):
             self.m.soft_reset_keep_origin(z_up, z_feed)

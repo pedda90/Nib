@@ -1,6 +1,9 @@
 # Nib
 
-Eigene Steuer-Software für den UUNATeK-3.0-Stiftplotter (GRBL über USB/CH340).
+*Pen plotter control – Every line, by the pen.*
+
+Eigene Steuer-Software für den UUNATeK-3.0-Stiftplotter (GRBL/FluidNC über USB/CH340).
+Die Oberfläche ist englisch, hell oder dunkel (folgt Windows oder per Knopf rechts oben).
 
 **Alle Bedienelemente und Einstellungen erklärt: [BEDIENUNG.md](BEDIENUNG.md)**
 
@@ -21,14 +24,14 @@ Zum Entwickeln lässt sich das mit `server.py --keep-running` abschalten.
 **Wichtig:** Vorher die UUNA-Software schließen. Es kann immer nur ein Programm COM3 benutzen.
 
 ## Erster Test mit dem echten Plotter
-1. Oben **COM3** wählen, dann **Verbinden**. Im Konsolenfeld sollte „Controller gestartet: Grbl …“ stehen.
-2. **Stift hoch** und **Stift runter** testen. Bei Bedarf „Stift oben/unten (Z)“ anpassen.
+1. Oben **COM3** wählen, dann **Connect**. In der Konsole sollte „Controller started: Grbl …“ stehen.
+2. **Pen up** und **Pen down** testen. Bei Bedarf „Pen up (Z)“ / „Pen down (Z)“ unter *Speed & pen* anpassen.
    Die Standardwerte stammen aus deiner UUNA-Konfiguration (0,5 mm / 5 mm).
 3. Mit den Pfeilen verfahren und prüfen: → fährt nach rechts, ↓ fährt zu dir (Blatt nach unten).
-   Falls nicht, unter „Achsen“ *X umkehren*, *Y umkehren* oder *X/Y tauschen* anhaken.
-4. Stift an die **obere linke Blattecke** fahren, dann **Nullpunkt hier** drücken.
-5. SVG laden, dann **Rahmen abfahren**. Der Stift fährt angehoben die Kontur der Vorschau ab.
-6. **Start**.
+   Falls nicht, unter *Machine* **Invert X**, **Invert Y** oder **Swap X/Y** anhaken.
+4. Stift an die **obere linke Blattecke** fahren, dann **Set origin** drücken.
+5. SVG laden (**Open SVG**), dann **Trace frame**. Der Stift fährt angehoben die Kontur der Vorschau ab.
+6. **Plot**.
 
 ## Funktionen
 - SVG aus Illustrator, DrawingBotV3 usw. mit korrekter Größe in mm.
@@ -54,5 +57,6 @@ Zum Entwickeln lässt sich das mit `server.py --keep-running` abschalten.
 | `optimize.py` | Pfadoptimierung |
 | `gcode.py` | Platzierung und G-Code |
 | `mockgrbl.py` | Simulierter Plotter |
-| `web/` | Oberfläche |
+| `app.py` | Programmfenster (Nib.exe) |
+| `web/` | Oberfläche (Schriften: IBM Plex, SIL Open Font License, siehe `web/fonts/`) |
 | `settings.json`, `job_state.json` | Gespeicherte Einstellungen und Fortsetzungspunkt (werden automatisch angelegt) |

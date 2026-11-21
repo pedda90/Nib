@@ -43,22 +43,22 @@ def main():
     try:
         srv = S.make_server(S.PORT, fallback=True)
     except Exception as e:
-        _error("Nib", f"Nib konnte nicht starten:\n{e}")
+        _error("Nib", f"Nib could not start:\n{e}")
         return
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    print(f"Nib läuft auf http://127.0.0.1:{port}/")
+    print(f"Nib running at http://127.0.0.1:{port}/")
 
     win = webview.create_window(
         "Nib", f"http://127.0.0.1:{port}/",
         width=1600, height=1000, min_size=(1100, 700),
-        maximized=True, background_color="#16181c", text_select=True)
+        maximized=True, background_color="#121110", text_select=True)
 
     def on_closing():
         if S._job_busy():
-            if not _ask("Nib beenden?",
-                        "Es läuft gerade ein Plot.\n\nWirklich beenden? Der Plot wird abgebrochen, "
-                        "die Stelle wird gemerkt und kann später fortgesetzt werden."):
+            if not _ask("Quit Nib?",
+                        "A plot is running.\n\nQuit anyway? The plot will be aborted; "
+                        "the position is saved so you can resume later."):
                 return False          # Fenster bleibt offen
             try:
                 m = S.APP.settings["machine"]
