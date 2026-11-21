@@ -2,6 +2,8 @@
 
 Eigene Steuer-Software für den UUNATeK-3.0-Stiftplotter (GRBL über USB/CH340).
 
+**Alle Bedienelemente und Einstellungen erklärt: [BEDIENUNG.md](BEDIENUNG.md)**
+
 ## Starten
 Doppelklick auf **`Nib starten.bat`**. Der Browser öffnet sich auf http://127.0.0.1:8765.
 Das schwarze Fenster offen lassen. Wird es geschlossen, beendet sich Nib.
@@ -27,6 +29,8 @@ Das schwarze Fenster offen lassen. Wird es geschlossen, beendet sich Nib.
 - Vorschau mit Leerfahrten, Zeitschätzung pro Ebene, Live-Fortschritt und Stiftposition.
 - Pause/Weiter (auch mit der Leertaste), Stopp ohne Verlust des Nullpunkts,
   **Fortsetzen nach Abbruch** (auch nach einem Neustart des Programms) oder ab einem beliebigen Pfad.
+- **Rückwärts plotten** (vom Ende zum Anfang) und Startpunkt per Klick in die Vorschau wählen.
+- Arbeitsbereichs-Grenzen ab der Einschaltecke, mit Ausmess-Funktion. Geschwindigkeiten auf das Firmware-Maximum begrenzt.
 - Manuelle Steuerung, einstellbare Geschwindigkeiten, Konsole für G-Code und `$`-Befehle.
 - „SIMULATOR“ als Schnittstelle zum Ausprobieren ohne Plotter.
 
