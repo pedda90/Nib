@@ -55,6 +55,7 @@ class Machine:
         self._idle_since = None   # seit wann der Plotter 'Idle' meldet
         self._raw = collections.deque(maxlen=300)   # letzte Zeilen (Zeit, rx/tx, Text) für Diagnose
         self._anomalies = 0       # Antworten mit angehängtem/eingeschobenem Text
+        self._odd = collections.deque(maxlen=200)   # auffällige Zeilen (Zeit, Text)
         self.lost_acks_total = 0
         self._diag_count = 0
 
@@ -160,21 +161,38 @@ class Machine:
 
     def _handle_line(self, line):
         if True:
-            if line.startswith("<"):
-                end = line.find(">")
-                if end < 0:
-                    # Statusmeldung ohne Ende – vermutlich hat der Plotter etwas hineingeschrieben
+            if line != "ok" and (line.startswith("<") or line.startswith("ok")):
+                # Statusmeldung und 'ok' können ineinander geschrieben sein, z. B.
+                # "<Run|...>ok", "ok<Run|...>", "<Run|MPos:..|okFS:..>", "okok".
+                # In Statusmeldungen kommt "ok" sonst nie vor -> jedes "ok" ist eine Bestätigung.
+                n_ok = line.count("ok")
+                rest = line.replace("ok", "")
+                if rest.startswith("error"):
                     self._anomalies += 1
-                    if line.endswith("ok"):
-                        self._parse_status(line[:-2] + ">")
+                    self._odd.append((time.strftime("%H:%M:%S"), line))
+                    for _ in range(n_ok):
                         self._handle_line("ok")
-                    return
-                self._parse_status(line[:end + 1])
-                rest = line[end + 1:].strip()
-                if rest:
-                    # z. B. "<Run|...>ok": das 'ok' klebt an der Statusmeldung
-                    self._anomalies += 1
                     self._handle_line(rest)
+                    return
+                st = rest.find("<")
+                if st >= 0:
+                    end = rest.find(">", st)
+                    if end > st:
+                        self._parse_status(rest[st:end + 1])
+                    elif re.fullmatch(r"<[A-Za-z]+(:\d)?(\|[A-Za-z]+:[-\d.,]+)*", rest[st:].strip()):
+                        self._parse_status(rest[st:].strip() + ">")   # nur das '>' fehlt
+                    leftover = (rest[:st] + (rest[end + 1:] if end > st else "")).strip()
+                else:
+                    leftover = rest.strip()
+                if line.startswith("<") and line.endswith(">") and n_ok == 0 and line.count("<") == 1:
+                    return                                   # normale Statusmeldung
+                self._anomalies += 1
+                self._odd.append((time.strftime("%H:%M:%S"), line))
+                for _ in range(n_ok):
+                    self._handle_line("ok")
+                if leftover and leftover.startswith(("[", "ALARM", "$")):
+                    self._handle_line(leftover)
+                return
             elif line == "ok" or line.startswith("error"):
                 with self.cv:
                     item = self.inflight.popleft() if self.inflight else None
@@ -296,6 +314,11 @@ class Machine:
                 f.write(f"\n===== {time.strftime('%d.%m.%Y %H:%M:%S')}  {n} fehlende ok, "
                         f"Auffälligkeiten bisher: {self._anomalies}\n")
                 f.write("offen: " + " | ".join(pend) + "\n")
+                if self._odd:
+                    f.write("auffällige Zeilen (zuletzt):\n")
+                    for t, l in list(self._odd)[-40:]:
+                        f.write(f"  {t} {l!r}\n")
+                    f.write("Verlauf:\n")
                 t0 = raw[0][0] if raw else 0
                 for t, k, l in raw:
                     f.write(f"{t - t0:8.3f} {k} {l!r}\n")
