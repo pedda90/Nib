@@ -72,7 +72,7 @@ def save_json(path, data):
     os.replace(tmp, path)
 
 
-def allowed_area(m, machine=None):
+def allowed_area(m, machine=None, wco_xy=None):
     """Erlaubter Bereich in Blattkoordinaten (x0, y0, x1, y1), gemessen ab dem Nullpunkt.
 
     Sind die Firmware-Grenzen des Plotters bekannt ($130/$131 bei $20=1), gelten nur diese.
@@ -92,7 +92,7 @@ def allowed_area(m, machine=None):
             fx, fy = st.get("fw_max") or (None, None)
             mx = min(ux, fx) if (st.get("fw_soft_limits") and fx) else ux
             my = min(uy, fy) if (st.get("fw_soft_limits") and fy) else uy
-            wx, wy = wco[0], wco[1]
+            wx, wy = (wco_xy if wco_xy is not None else wco[:2])
             return -wx, -wy, mx - wx, my - wy
     return 0.0, 0.0, ux, uy
 
@@ -121,13 +121,13 @@ def clamp_speeds(m, fw):
     return changed
 
 
-def check_limits(bbox, place, m, machine=None):
+def check_limits(bbox, place, m, machine=None, wco_xy=None):
     """Fehlermeldung, wenn das platzierte Design den erlaubten Bereich verlässt, sonst None."""
     if not m.get("limits_on", True):
         return None
     w, h = G.placed_size(bbox, place)
     x, y = float(place.get("x", 0)), float(place.get("y", 0))
-    ax0, ay0, ax1, ay1 = allowed_area(m, machine)
+    ax0, ay0, ax1, ay1 = allowed_area(m, machine, wco_xy)
     eps = 0.01
     if x < ax0 - eps or y < ay0 - eps or x + w > ax1 + eps or y + h > ay1 + eps:
         return (f"Design liegt außerhalb der Maschinengrenzen (erlaubt X {ax0:.1f} bis {ax1:.1f}, "
@@ -392,6 +392,11 @@ class App:
             b.footer(home and self.settings["job"]["go_home"])
             return b.lines
 
+        def change_moves():
+            b = G.GcodeBuilder(m)
+            b.footer(True)          # Stift hoch, zum Nullpunkt
+            return b.lines
+
         sl = int(body.get("start_layer", 0))
         sp = body.get("start_path")
         sp = None if sp is None else int(sp)
@@ -399,7 +404,9 @@ class App:
                 for l in layers]
         job = Job(self.machine, meta, build_layer, header, footer, sl, sp,
                   pen_change=bool(self.settings["job"]["pen_change"]),
-                  on_progress=lambda j: self.save_progress(j))
+                  # ohne bestätigte Linien (Start, Stiftwechsel) sofort speichern
+                  on_progress=lambda j: self.save_progress(j, force=not j.recent),
+                  change_moves=change_moves)
         job.layer_ids = ids
         job.place = place
         job.reverse = reverse
@@ -565,7 +572,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/job/start":
             return APP.start_job(b)
 
-        if busy:
+        # Beim Stiftwechsel darf verfahren, der Stift bewegt und der Nullpunkt neu gesetzt werden
+        changing = APP.job and APP.job.state == "stiftwechsel"
+        if busy and not (changing and path in (
+                "/api/jog", "/api/jog/cancel", "/api/pen", "/api/zero", "/api/goto_zero")):
             return {"error": "Während eines Plots nicht möglich"}
 
         if path == "/api/command":
@@ -618,7 +628,15 @@ class Handler(BaseHTTPRequestHandler):
             M.send(f"G90 G1 Z{z} F{int(mset['z_feed'])}", tag=None)
             return {"ok": True}
         if path == "/api/zero":
+            if changing and mset.get("limits_on", True):
+                # Plot muss auch mit dem neuen Nullpunkt in den Arbeitsbereich passen
+                st = M.status()
+                err = check_limits(APP.doc["bbox"], APP.job.place, mset, M, wco_xy=st["mpos"][:2])
+                if err:
+                    return {"error": "Nullpunkt hier nicht möglich – " + err}
             M.send("G92 X0 Y0", tag="console")
+            if changing:
+                M._log("info", "Nullpunkt beim Stiftwechsel neu gesetzt")
             M.zero_set = True
             return {"ok": True}
         if path in ("/api/goto_zero", "/api/goto_machine_zero"):

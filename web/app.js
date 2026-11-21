@@ -691,9 +691,11 @@ function renderJob() {
   const pc = $("#penChange");
   if (job && job.state === "stiftwechsel") {
     pc.hidden = false;
-    pc.innerHTML = `🖊 ${esc(job.message)}<button class="primary">Weiter – Stift ist gewechselt</button>`;
+    const nl = job.layers[job.layer];
+    const html = `🖊 ${esc(job.message)}<br><small>Beim Stoppen geht es später mit Ebene ${job.layer + 1}${nl ? ` „${esc(nl.name)}“` : ""}, Pfad 1 weiter.</small><button class="primary">Weiter – Stift ist gewechselt</button>`;
+    if (pc.dataset.html !== html) { pc.innerHTML = html; pc.dataset.html = html; }
     pc.querySelector("button").onclick = () => api("/api/job/resume", {});
-  } else pc.hidden = true;
+  } else { pc.hidden = true; pc.dataset.html = ""; }
 
   if (!job) { $("#progText").textContent = "Bereit"; $("#progBar").style.width = "0"; return; }
   let total = 0, done = 0, estTotal = 0, estDone = 0;
@@ -761,7 +763,10 @@ $("#jogCustom").onchange = () => setJogStep(parseFloat($("#jogCustom").value));
 try { const v = parseFloat(localStorage.getItem("jogStep")); if (v > 0) setJogStep(v); } catch (e) { /* egal */ }
 $("#btnPenUp").onclick = () => api("/api/pen", { down: false });
 $("#btnPenDown").onclick = () => api("/api/pen", { down: true });
-$("#btnZero").onclick = () => api("/api/zero", {});
+$("#btnZero").onclick = async () => {
+  const r = await api("/api/zero", {});
+  if (r && r.error && job && job.state === "stiftwechsel") alert(r.error);
+};
 $("#btnGoZero").onclick = () => api("/api/goto_zero", {});
 $("#btnMachineZero").onclick = () => api("/api/goto_machine_zero", {});
 $("#btnUnlock").onclick = () => api("/api/unlock", {});
@@ -875,6 +880,9 @@ function renderStatus() {
   $("#port").disabled = on; $("#baud").disabled = on;
   const ctl = on && !jobActive();
   $$(".panel.left button, #btnFrame, #cmdForm button").forEach((b) => b.disabled = !ctl);
+  // Beim Stiftwechsel: verfahren, Stift hoch/runter, Nullpunkt neu setzen und zum Nullpunkt fahren erlaubt
+  if (on && job && job.state === "stiftwechsel")
+    $$("[data-jog], [data-step], #jogCustom, #btnGoZero, #btnPenUp, #btnPenDown, #btnZero").forEach((b) => b.disabled = false);
   $("#btnUnlock").disabled = !on;
 }
 

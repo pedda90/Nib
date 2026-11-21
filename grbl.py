@@ -421,7 +421,7 @@ class Job:
     """Ein Plot-Auftrag über mehrere Ebenen mit Stiftwechsel-Pausen."""
 
     def __init__(self, machine: Machine, layers, build_layer, header, footer,
-                 start_layer=0, start_path=0, pen_change=True, on_progress=None):
+                 start_layer=0, start_path=0, pen_change=True, on_progress=None, change_moves=None):
         self.m = machine
         self.layers = layers                # [{id,name,color,count}]
         self.build_layer = build_layer      # f(li, start_path) -> [(zeile, tag)]
@@ -431,6 +431,8 @@ class Job:
         self.start_path = start_path
         self.pen_change = pen_change
         self.on_progress = on_progress
+        self.change_moves = change_moves    # f() -> Zeilen: Stift hoch + zum Nullpunkt
+        self._next_layer = None             # beim Stiftwechsel: Ebene, die als nächste kommt
         self.state = "läuft"
         self.message = ""
         self.layer_idx = start_layer
@@ -482,6 +484,10 @@ class Job:
             self._continue.set()
 
     def resume_point(self):
+        if not self.recent and self._next_layer is not None:
+            # Vorige Ebene ist komplett fertig -> nächste Ebene von vorne (rückwärts: vom Ende)
+            li = self._next_layer
+            return (li, self.layers[li]["count"] - 1 if getattr(self, "reverse", False) else 0)
         if not self.recent:
             if self.start_path is not None:
                 return (self.start_layer, self.start_path)
@@ -514,14 +520,27 @@ class Job:
             if self._abort:
                 return
             if li > self.start_layer and self.pen_change:
-                self.m.queue_lines(self.footer(False))
+                # Stiftwechsel immer am Nullpunkt (Stift hoch, dann nach X0 Y0)
+                self.m.queue_lines(self.change_moves() if self.change_moves else self.footer(False))
                 if not self._wait_done():
                     return
+                # Ebene davor ist vollständig gezeichnet: Fortsetzen-Stelle = nächste Ebene
+                self.recent.clear()
+                self._next_layer = li
+                self.layer_idx, self.path_idx = self.resume_point()
+                if self.on_progress:
+                    self.on_progress(self)
                 self.state = "stiftwechsel"
-                self.message = (f"Stift wechseln für Ebene '{self.layers[li]['name']}' "
-                                f"({self.layers[li]['color']}) – dann 'Weiter'")
+                self.message = (f"Stift wechseln für Ebene {li + 1} '{self.layers[li]['name']}' "
+                                f"({self.layers[li]['color']}) – Kopf steht am Nullpunkt. "
+                                f"Du kannst verfahren und den Nullpunkt neu setzen, dann 'Weiter'")
                 self._continue.clear()
                 self._continue.wait()
+                if self._abort:
+                    return
+                # Falls noch verfahren wird: erst fertig werden lassen
+                while not self._abort and not self.m.state.startswith("Idle"):
+                    time.sleep(0.1)
                 if self._abort:
                     return
                 self.state = "läuft"
@@ -564,6 +583,8 @@ class Job:
             self.m.soft_reset_keep_origin(z_up, z_feed)
         else:
             self.m.clear_queue()
+            if self.m.state.startswith("Jog"):
+                self.m.realtime(b"\x85")       # laufendes Verfahren abbrechen
 
     def elapsed(self):
         t = time.time() - self.t_start - self.t_paused

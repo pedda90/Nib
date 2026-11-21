@@ -103,6 +103,13 @@ Unter jedem Feld steht der Standardwert, geänderte Werte sind orange markiert.
 3. **Rahmen abfahren:** Der Stift fährt angehoben die Kontur des Designs ab. Damit prüfst du die Lage auf dem Blatt.
 4. **Start.** Zwischen den Ebenen hält der Plotter für den Stiftwechsel an, wenn „Zwischen Ebenen pausieren“ aktiv ist.
 
+**Stiftwechsel:** Der Kopf fährt mit angehobenem Stift zum Nullpunkt, dort richtest du den neuen
+Stift aus (z. B. auf deinem markierten Punkt). Während des Wechsels darfst du verfahren, den Stift
+heben/senken, mit ⌂ zum Nullpunkt fahren und mit **Nullpunkt hier** einen neuen Nullpunkt setzen.
+Ein Nullpunkt, bei dem der Plot über den Arbeitsbereich hinausragen würde, wird abgelehnt.
+Danach **Weiter – Stift ist gewechselt**. Drückst du während des Wechsels **Stopp**, ist die
+gemerkte Stelle der Anfang der nächsten Ebene (z. B. Ebene 2, Pfad 1).
+
 | Funktion | Beschreibung |
 |---|---|
 | **Pause / Weiter** | Hält an und fährt an derselben Stelle weiter. Geht auch mit der Leertaste. |
