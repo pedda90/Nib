@@ -239,13 +239,18 @@ class Machine:
             self._check_lost_acks()
 
     def _check_lost_acks(self):
-        """Sicherheitsnetz: Steht der Plotter > 3 s still (Idle), obwohl noch Befehle als
-        'unterwegs' gelten und kein 'ok' mehr kam, sind diese Bestätigungen verloren gegangen.
-        Dann den Zähler freigeben, damit der Plot weiterläuft statt ewig zu warten."""
+        """Sicherheitsnetz: Steht der Plotter still (Idle), obwohl der älteste 'unterwegs'
+        geltende Befehl schon > 3 s alt ist und seitdem kein 'ok' mehr kam, sind diese
+        Bestätigungen verloren gegangen. Dann den Zähler freigeben, damit der Plot
+        weiterläuft statt ewig zu warten."""
         now = time.time()
         with self.cv:
-            if (not self.inflight or self._idle_since is None
-                    or now - self._idle_since < 3 or now - self._last_ok_t < 3):
+            if not self.inflight or not self.state.startswith("Idle"):
+                return
+            oldest = self.inflight[0][3]
+            # Idle muss *nach* dem Senden beobachtet worden sein, nicht schon vorher
+            if (now - oldest < 3 or now - self._last_ok_t < 3
+                    or self._idle_since is None or self._idle_since <= oldest):
                 return
             n = len(self.inflight)
             self.inflight.clear()
@@ -261,7 +266,7 @@ class Machine:
                     break
                 line, tag = self.pending.popleft()
                 data = (line + "\n").encode()
-                self.inflight.append((len(data), line, tag))
+                self.inflight.append((len(data), line, tag, time.time()))
             self._write(data)
             if tag == "console":
                 self._log("tx", line)
