@@ -784,10 +784,12 @@ window.addEventListener("pagehide", () => {
 window.addEventListener("keydown", (e) => {
   if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
   const map = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-  if (map[e.key] && connected() && !jobActive()) {
+  // frei, wenn kein Plot läuft – oder während des Stiftwechsels
+  const free = !jobActive() || job.state === "stiftwechsel";
+  if (map[e.key] && connected() && free) {
     e.preventDefault(); api("/api/jog", { x: map[e.key][0] * jogStep, y: map[e.key][1] * jogStep });
-  } else if (e.key === "PageUp" && !jobActive()) { e.preventDefault(); api("/api/pen", { down: false }); }
-  else if (e.key === "PageDown" && !jobActive()) { e.preventDefault(); api("/api/pen", { down: true }); }
+  } else if (e.key === "PageUp" && free) { e.preventDefault(); api("/api/pen", { down: false }); }
+  else if (e.key === "PageDown" && free) { e.preventDefault(); api("/api/pen", { down: true }); }
   else if (e.key === " ") {
     e.preventDefault();
     if (job && job.state === "läuft") api("/api/job/pause", {});
@@ -882,7 +884,7 @@ function renderStatus() {
   $$(".panel.left button, #btnFrame, #cmdForm button").forEach((b) => b.disabled = !ctl);
   // Beim Stiftwechsel: verfahren, Stift hoch/runter, Nullpunkt neu setzen und zum Nullpunkt fahren erlaubt
   if (on && job && job.state === "stiftwechsel")
-    $$("[data-jog], [data-step], #jogCustom, #btnGoZero, #btnPenUp, #btnPenDown, #btnZero").forEach((b) => b.disabled = false);
+    $$("[data-jog], [data-step], #jogCustom, #btnGoZero, #btnPenUp, #btnPenDown, #btnZero, [data-zjog]").forEach((b) => b.disabled = false);
   $("#btnUnlock").disabled = !on;
 }
 
