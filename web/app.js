@@ -785,6 +785,18 @@ function updatePlaceInputs() {
   $("#plS").value = +(p.scale * 100).toFixed(2); $("#plR").value = String(p.rotate | 0);
   if (doc) { const [w, h] = placedSize(); $("#plW").value = +w.toFixed(1); $("#plH").value = +h.toFixed(1); }
   else { $("#plW").value = ""; $("#plH").value = ""; }
+  renderDocInfo();
+}
+
+// file info above the preview; the line length follows the scale, like the per-layer lengths
+function renderDocInfo() {
+  if (!doc) return;
+  const nl = doc.layers.length;
+  const info = `${fmtNum(doc.bbox[2] - doc.bbox[0], 1)} × ${fmtNum(doc.bbox[3] - doc.bbox[1], 1)} mm · ${nl} layer${nl === 1 ? "" : "s"} · ` +
+    `${fmtNum(doc.layers.reduce((a, l) => a + l.count, 0))} paths · ` +
+    `${fmtNum(doc.layers.reduce((a, l) => a + l.draw_len, 0) * S.place.scale / 1000, 1)} m of line`;
+  $("#docInfo").innerHTML = `<b>${esc(doc.name)}</b> · ${info}`;
+  $("#docInfo").title = `${doc.name}\n${info}`;
 }
 function placeChanged() { updatePlaceInputs(); saveSettings({ place: S.place }); renderLayers(); scheduleDraw(); }
 $("#plX").onchange = () => { const [w] = doc ? placedSize() : [0]; S.place.x = (+$("#plX").value || 0) - anchor[0] * w; placeChanged(); };
@@ -895,17 +907,10 @@ function setDoc(j, resetPlacement) {
   }
   saveSettings({ place: S.place });
   $("#drop").classList.add("hidden");
-  const [w, h] = placedSize();
-  const nl = doc.layers.length;
-  const info = `${fmtNum(doc.bbox[2] - doc.bbox[0], 1)} × ${fmtNum(doc.bbox[3] - doc.bbox[1], 1)} mm · ${nl} layer${nl === 1 ? "" : "s"} · ` +
-    `${fmtNum(doc.layers.reduce((a, l) => a + l.count, 0))} paths · ${fmtNum(doc.layers.reduce((a, l) => a + l.draw_len, 0) / 1000, 1)} m of line`;
-  $("#docInfo").innerHTML = `<b>${esc(doc.name)}</b> · ${info}`;
-  $("#docInfo").title = `${doc.name}\n${info}`;
   const wn = doc.warnings.length;
   $("#warnings").textContent = wn ? `⚠ ${wn} note${wn > 1 ? "s" : ""}` : "";
   $("#warnings").title = doc.warnings.join("\n");
   $("#warnings").onclick = () => doc.warnings.forEach((w) => logLocal("warn", w));
-  void w; void h;
   updatePlaceInputs(); renderLayers(); renderResume(); scheduleDraw();
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
