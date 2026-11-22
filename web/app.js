@@ -218,10 +218,87 @@ function saveInkView() {
 }
 $("#ink").onchange = saveInkView;
 $("#penW").onchange = saveInkView;
-function paintInk(path, alpha) {
+function paintInk(c, path, alpha) {
   const op = INK_OPACITY[inkView.ink] ?? 0.1;
-  ctx.globalCompositeOperation = "multiply"; ctx.globalAlpha = alpha; ctx.stroke(path);
-  if (op > 0.02) { ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = alpha * op; ctx.stroke(path); }
+  c.globalCompositeOperation = "multiply"; c.globalAlpha = alpha; c.stroke(path);
+  if (op > 0.02) { c.globalCompositeOperation = "source-over"; c.globalAlpha = alpha * op; c.stroke(path); }
+}
+
+/* Layer cache: drawing all paths (tens of thousands) takes ~60 ms, so they are drawn
+   once into an offscreen canvas on white and multiplied onto the sheet. Status updates,
+   the plot head etc. only re-blit it. Panning, zooming or dragging the design moves/scales
+   the cached image right away and redraws it sharp shortly after the movement stops. */
+let docVersion = 0;
+const lc = { cv: document.createElement("canvas"), key: "", s: 1, ox: 0, oy: 0, px: 0, py: 0, timer: 0 };
+function layerKey() {
+  let done = "";
+  if (job && job.layer_ids && (jobActive() || (["aborted", "done"].includes(job.state) && !startSel))) {
+    const cur = doc.layers.find((l) => l.id === job.layer_ids[job.layer]);
+    const step = Math.max(1, Math.ceil(((cur && cur.count) || 1) / 300));   // ≤ 300 redraws per layer
+    const head = `${job.state}|${job.layer}`;
+    done = `${head}|${Math.floor(job.path / step)}`;
+    // progress within the same layer: redraw at most every 1.5 s
+    if (lc.doneHead === head && done !== lc.done && performance.now() - lc.doneAt < 1500) done = lc.done;
+    else if (done !== lc.done) Object.assign(lc, { done, doneHead: head, doneAt: performance.now() });
+  }
+  return [doc._v, order.map((o) => o.id + (o.on ? "+" : "-")).join(","), inkView.ink, inkView.penW,
+    $("#showTravel").checked, TC.accent, cv.width, cv.height, S.place.scale, S.place.rotate, done,
+    startSel ? `${startSel.id}/${startSel.path}` : "", isReverse()].join("|");
+}
+function renderLayerCache(d, key) {
+  lc.cv.width = cv.width; lc.cv.height = cv.height;
+  const c = lc.cv.getContext("2d");
+  c.setTransform(d, 0, 0, d, 0, 0);
+  c.globalCompositeOperation = "source-over"; c.globalAlpha = 1;
+  c.fillStyle = "#fff"; c.fillRect(0, 0, cv.width / d, cv.height / d);
+  const place = makePlacer();
+  const lw = Math.max(0.5, inkView.penW * view.s);   // true pen width
+  const showTravel = $("#showTravel").checked;
+  let last = null;
+  const travel = new Path2D();
+  for (const o of order) {
+    if (!o.on) continue;
+    const l = doc.layers.find((x) => x.id === o.id);
+    if (!l) continue;
+    const done = doneFn(l.id);
+    const pDone = new Path2D(), pTodo = new Path2D();
+    l.paths.forEach((p, idx) => {
+      const target = (done === null || done(idx)) ? pDone : pTodo;
+      let [x, y] = toScreen(...place(p[0], p[1]));
+      if (showTravel && last) { travel.moveTo(last[0], last[1]); travel.lineTo(x, y); }
+      target.moveTo(x, y);
+      for (let i = 2; i < p.length; i += 2) {
+        [x, y] = toScreen(...place(p[i], p[i + 1]));
+        target.lineTo(x, y);
+      }
+      last = [x, y];
+    });
+    c.lineWidth = lw; c.lineCap = "round"; c.lineJoin = "round"; c.strokeStyle = l.color;
+    paintInk(c, pDone, 1);
+    paintInk(c, pTodo, done === null ? 1 : 0.18);
+  }
+  c.globalAlpha = 1; c.globalCompositeOperation = "source-over";
+  if (showTravel) {
+    c.strokeStyle = TC.accent; c.globalAlpha = .55; c.lineWidth = 0.7; c.setLineDash([3, 3]);
+    c.stroke(travel); c.setLineDash([]); c.globalAlpha = 1;
+  }
+  Object.assign(lc, { key, s: view.s, ox: view.ox, oy: view.oy, px: S.place.x, py: S.place.y });
+}
+function blitLayers(d) {
+  const key = layerKey();
+  if (key !== lc.key) renderLayerCache(d, key);
+  const f = view.s / lc.s;
+  const tx = view.ox - lc.ox * f + (S.place.x - lc.px) * view.s;
+  const ty = view.oy - lc.oy * f + (S.place.y - lc.py) * view.s;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = "multiply";
+  ctx.drawImage(lc.cv, tx * d, ty * d, lc.cv.width * f, lc.cv.height * f);
+  ctx.restore();
+  if (f !== 1 || tx !== 0 || ty !== 0) {           // moved/zoomed: redraw sharp once it settles
+    clearTimeout(lc.timer);
+    lc.timer = setTimeout(() => { lc.key = ""; scheduleDraw(); }, 140);
+  }
 }
 
 function draw() {
@@ -230,7 +307,9 @@ function draw() {
   const d = devicePixelRatio || 1;
   ctx.setTransform(d, 0, 0, d, 0, 0);
   const W = cv.width / d, H = cv.height / d;
-  ctx.clearRect(0, 0, W, H);
+  // opaque table colour (the layer cache is multiplied on top, so nothing may stay transparent)
+  ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
+  ctx.fillStyle = TC.table; ctx.fillRect(0, 0, W, H);
 
   // sheet with a soft shadow
   const [px, py] = toScreen(0, 0);
@@ -250,38 +329,9 @@ function draw() {
   ctx.globalAlpha = 1;
 
   if (doc) {
+    blitLayers(d);
     const place = makePlacer();
-    const lw = Math.max(0.5, inkView.penW * view.s);   // true pen width
-    const showTravel = $("#showTravel").checked;
-    let last = null;
-    const travel = new Path2D();
-    for (const o of order) {
-      if (!o.on) continue;
-      const l = doc.layers.find((x) => x.id === o.id);
-      if (!l) continue;
-      const done = doneFn(l.id);
-      const pDone = new Path2D(), pTodo = new Path2D();
-      l.paths.forEach((p, idx) => {
-        const target = (done === null || done(idx)) ? pDone : pTodo;
-        let [x, y] = toScreen(...place(p[0], p[1]));
-        if (showTravel && last) { travel.moveTo(last[0], last[1]); travel.lineTo(x, y); }
-        target.moveTo(x, y);
-        for (let i = 2; i < p.length; i += 2) {
-          [x, y] = toScreen(...place(p[i], p[i + 1]));
-          target.lineTo(x, y);
-        }
-        last = [x, y];
-      });
-      ctx.lineWidth = lw; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = l.color;
-      paintInk(pDone, 1);
-      paintInk(pTodo, done === null ? 1 : 0.18);
-    }
-    ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
     drawMarker(place);
-    if (showTravel) {
-      ctx.strokeStyle = TC.accent; ctx.globalAlpha = .55; ctx.lineWidth = 0.7; ctx.setLineDash([3, 3]);
-      ctx.stroke(travel); ctx.setLineDash([]); ctx.globalAlpha = 1;
-    }
     // frame of the design
     const [w, h] = placedSize();
     const [bx, by] = toScreen(S.place.x, S.place.y);
@@ -720,6 +770,7 @@ function renderLayers() {
    The server sends each layer's paths once with their sublayer, so showing/hiding a
    sublayer is instant here; the server only gets told in the background. */
 function derivePaths() {
+  doc._v = ++docVersion;                 // invalidates the layer cache
   const hidden = new Set(doc.hidden || []);
   for (const l of doc.layers) {
     if (!l.all) continue;
