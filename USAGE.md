@@ -29,7 +29,7 @@ a short progress summary.
 | **Arrows** | Move the pen in X/Y. Movement stops automatically at the edge of the work area. |
 | **Pen up / Pen down** | Moves Z to the “Pen up (Z)” or “Pen down (Z)” height, e.g. to check that the pen touches down properly. |
 | **Set origin** | The current position becomes the corner of your sheet. Placement (X/Y) in the preview is measured from here. |
-| **Center of the arrows** | Returns to the point set with “Set origin”. |
+| **House (center of the arrows)** | Returns to the point set with “Set origin”, with the pen raised. |
 | **Machine home** | Moves to the power-on position (corner). The origin you set is kept. |
 | **Unlock** | After an alarm (e.g. a limit was hit) the plotter is locked. This clears the lock without losing the origin. |
 | **Pen height** | Shows the current Z height in mm (0 = fully up, larger = lower). |
@@ -115,6 +115,8 @@ Each field shows its default below it; changed values are highlighted.
    disappear from the preview and are not plotted. If everything in a color is unticked, that color
    is skipped (no pen change).
    Showing or hiding a sublayer is instant; the plot order of the remaining lines stays the same.
+   **While plotting**, the colour checkboxes only show or hide the colour in the preview – the
+   running plot isn't changed, and everything is shown again when it ends. Sublayers are locked then.
 2. Under **Placement**, set position and size (X/Y, Width/Height, Scale, Rotation); **Center**, **Fit**
    and **100 %** help with alignment.
    **Reference point (the 3×3 grid next to X/Y):** sets which corner or center of the design X and Y
@@ -133,7 +135,7 @@ remembered position is the start of the next layer (e.g. layer 2, path 1).
 | Function | Description |
 |---|---|
 | **Pause / Resume** | Stops and continues from the same point. The space bar works too. |
-| **Stop** | Aborts. The origin is kept and the position is remembered for resuming. (**STOP** at the top right is the emergency stop.) |
+| **Stop** | Aborts. The plotter brakes, lifts the pen and stays where it is – on purpose, so you can see where it stopped and nothing moves while you fix the problem. Press the house to return to the origin. The origin is kept and the position is remembered for resuming. (**STOP** at the top right is the emergency stop.) “Return to origin at the end” only applies when a plot finishes normally. |
 | **Plot in reverse** | Layers and lines from end to start, each line in the opposite direction. Handy if e.g. the ink ran out and you want to finish the rest from the back. |
 | **Start from** | **Pick in preview**, then click a line. A red marker shows the spot. Lines already done are faded, the ones still to plot are solid. Layer and path can also be entered as numbers (**Layer**, **Path no.**); **Reset** starts from the beginning again. |
 | **Resume after an abort** | **Show & resume here** sets the interrupted position (including direction) as the start point. Then start with **Plot**. Works even after restarting Nib. |
@@ -146,5 +148,5 @@ remembered position is the start of the next layer (e.g. layer 2, path 1).
 - **Don't move the carriage by hand** while the plotter is on, or between switching off and on, without pushing it back into the corner afterwards.
 - **After a stop in mid-move or after hitting a stop:** switch off, push the carriage into the corner, switch on again.
 - **Lost steps:** at very high speed (especially travel at maximum) the heavy Y carriage can lose steps. The position is then wrong and it can hit the end despite the limits. Reduce the travel speed a little.
-- **Close the UUNA software first.** Only one program can use COM3 at a time.
+- **Close the UUNA software first.** Only one program can use the plotter's COM port at a time.
 - Choose **SIMULATOR** as the port to try things out without a plotter.
