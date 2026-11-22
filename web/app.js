@@ -298,136 +298,196 @@ function saveInkView() {
 }
 $("#ink").onchange = saveInkView;
 $("#penW").onchange = saveInkView;
-function paintInk(c, path, alpha) {
-  const op = INK_OPACITY[inkView.ink] ?? 0.1;
-  c.globalCompositeOperation = "multiply"; c.globalAlpha = alpha; c.stroke(path);
-  if (op > 0.02) { c.globalCompositeOperation = "source-over"; c.globalAlpha = alpha * op; c.stroke(path); }
-}
-
-/* Layer cache: drawing all paths (tens of thousands) takes ~60 ms, so they are drawn
-   once into offscreen canvases and multiplied onto the sheet:
-     cv   finished paths (or all paths when no plot is shown), on white
-     tc   faded paths of the layers still to come, on white
-     tcur faded paths of the layer being plotted, on white
-     cur  finished paths of the layer being plotted, flat colour on transparent
-   While plotting, every newly finished path is only added: wiped out of tcur and drawn
-   into cur (< 1 ms), so the preview follows the pen live. "cur" is one flat colour, like a
-   single stroke, so overlaps within a layer don't darken – exactly like a full redraw.
-   A pen change (next layer) redraws everything once. Panning, zooming or dragging the
-   design moves/scales the cached images right away and redraws them sharp shortly after
+/* Preview cache. Drawing tens of thousands of paths is the expensive part, so:
+   - every pen colour is drawn once into its own offscreen canvases, flat colour on
+     transparent: "dn" = finished (or all) paths, "td" = paths still to come. Showing,
+     hiding or reordering colours only re-composites these images; hiding a sublayer
+     redraws only its own colour.
+   - the composites "cv" (ink) and "tc" (faded preview of what is still to come) are
+     multiplied onto the sheet like ink: multiply with the colour, then a little opaque
+     cover (INK_OPACITY) – the order of the colours matters for opaque pens.
+   - lines up to 1.5 px wide are drawn as 1 px hairlines: the canvas draws those about
+     seven times faster and at that size they look the same.
+   - while plotting, the colour in progress is left out of the composite: each newly
+     finished path is drawn into its "dn" and erased from its "td" (< 1 ms) and both are
+     put on screen directly, so the preview follows the pen live.
+   Panning/zooming moves/scales the cached images right away and redraws them sharp once
    the movement stops. */
 let docVersion = 0;
 const mkCanvas = () => document.createElement("canvas");
-const lc = { cv: mkCanvas(), tc: mkCanvas(), tcur: mkCanvas(), cur: mkCanvas(), hasCur: false,
-  key: "", s: 1, ox: 0, oy: 0, px: 0, py: 0, timer: 0, mark: null };
+const LC = new Map();          // layer id -> { base, vs, dn, td, hasTd, mark }
+const lc = { cv: mkCanvas(), tc: mkCanvas(), key: "", vs: "", sharpen: false, cur: null,
+  s: 1, ox: 0, oy: 0, px: 0, py: 0, timer: 0 };
 const jobShown = () => job && job.layer_ids && (jobActive() || (["aborted", "done"].includes(job.state) && !startSel));
 // progress mark of the shown plot: layer in progress (-1 = all done) and path
 const jobMark = () => jobShown() ? { layer: job.state === "done" ? -1 : job.layer, path: job.path } : null;
-function layerKey() {
-  // progress within a layer is not part of the key (it is drawn incrementally)
-  const mk = jobMark();
-  const jk = mk ? `${job.id}|${job.reverse}|${job.layer_ids.join(",")}|${mk.layer}` : "";
-  return [doc._v, order.map((o) => o.id + (o.on ? "+" : "-")).join(","), inkView.ink, inkView.penW,
-    $("#showTravel").checked, TC.accent, cv.width, cv.height, S.place.scale, S.place.rotate, jk,
-    startSel ? `${startSel.id}/${startSel.path}` : "", isReverse()].join("|");
-}
-const curLayerOf = (mk) => (mk && mk.layer >= 0) ? doc.layers.find((l) => l.id === job.layer_ids[mk.layer]) : null;
 function pathTo(path2d, p, place) {
   let [x, y] = toScreen(...place(p[0], p[1]));
   path2d.moveTo(x, y);
   for (let i = 2; i < p.length; i += 2) { [x, y] = toScreen(...place(p[i], p[i + 1])); path2d.lineTo(x, y); }
   return [x, y];
 }
-function addDonePaths(d) {
-  const mk = jobMark(), old = lc.mark;
-  if (!mk || !old || mk.layer !== old.layer || mk.path === old.path) return;
-  const l = curLayerOf(mk);
-  if (!l) return;
-  const rev = job.reverse;
-  if (rev ? mk.path > old.path : mk.path < old.path) { lc.key = ""; return; }   // went backwards
-  const [i0, i1] = rev ? [mk.path + 1, old.path + 1] : [old.path, mk.path];    // newly finished
-  const place = makePlacer();
-  const add = new Path2D();
-  for (let idx = Math.max(0, i0); idx < Math.min(i1, l.paths.length); idx++) pathTo(add, l.paths[idx], place);
-  const lw = Math.max(0.5, inkView.penW * view.s);
-  const u = lc.cur.getContext("2d"), t = lc.tcur.getContext("2d");
-  for (const g of [u, t]) {
-    g.setTransform(d, 0, 0, d, 0, 0); g.lineCap = "round"; g.lineJoin = "round";
-    g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
-  }
-  t.strokeStyle = "#fff"; t.lineWidth = lw + 1.5; t.stroke(add);     // wipe the faded stroke
-  u.strokeStyle = l.color; u.lineWidth = lw; u.stroke(add);          // ink it
-  lc.hasCur = true;
-  lc.mark = mk;
+function strokeWidth() {
+  const lw = Math.max(0.5, inkView.penW * view.s);       // true pen width
+  return lw < 1.5 ? Math.min(lw, 1) : lw;                 // hairline: much faster
 }
-function renderLayerCache(d, key) {
-  const mk = jobMark(), curL = curLayerOf(mk);
-  const C = {};
-  for (const k of ["cv", "tc", "tcur", "cur"]) {
-    lc[k].width = cv.width; lc[k].height = cv.height;
-    const g = C[k] = lc[k].getContext("2d");
-    g.setTransform(d, 0, 0, d, 0, 0);
-    g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
-    if (k !== "cur") { g.fillStyle = "#fff"; g.fillRect(0, 0, cv.width / d, cv.height / d); }
+function prepCanvas(c, d) {
+  if (c.width !== cv.width || c.height !== cv.height) { c.width = cv.width; c.height = cv.height; }
+  const g = c.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+  g.clearRect(0, 0, c.width, c.height);
+  g.setTransform(d, 0, 0, d, 0, 0);
+  g.lineCap = "round"; g.lineJoin = "round";
+  return g;
+}
+// ink a flat-coloured image onto g (identity transform): colour filter + a little cover
+function inkImage(g, img, alpha, dx = 0, dy = 0, w = img.width, h = img.height) {
+  const op = INK_OPACITY[inkView.ink] ?? 0.1;
+  g.globalCompositeOperation = "multiply"; g.globalAlpha = alpha; g.drawImage(img, dx, dy, w, h);
+  if (op > 0.02) { g.globalCompositeOperation = "source-over"; g.globalAlpha = alpha * op; g.drawImage(img, dx, dy, w, h); }
+  g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+}
+// which paths of a layer count as finished, and a key for that state
+function doneState(l) {
+  const fn = doneFn(l.id);
+  if (fn === null) return { key: "all", fn: null };
+  if (jobShown()) {
+    const i = job.layer_ids.indexOf(l.id), mk = jobMark();
+    if (mk.layer < 0 || i < mk.layer) return { key: "all", fn: null };
+    if (i > mk.layer) return { key: "none", fn };
+    return { key: `cur|${job.id}|${job.reverse}`, fn, cur: true };
   }
-  lc.hasCur = false;
+  return { key: `sel|${startSel.id}|${startSel.path}|${isReverse()}`, fn };
+}
+function renderLayer(l, ds, d, base, vs) {
+  let e = LC.get(l.id);
+  if (!e) { e = { dn: mkCanvas(), td: mkCanvas() }; LC.set(l.id, e); }
   const place = makePlacer();
-  const lw = Math.max(0.5, inkView.penW * view.s);   // true pen width
-  const showTravel = $("#showTravel").checked;
-  let last = null;
+  const pDone = new Path2D(), pTodo = new Path2D();
+  let nTodo = 0;
+  l.paths.forEach((p, idx) => {
+    if (ds.fn === null || ds.fn(idx)) pathTo(pDone, p, place);
+    else { pathTo(pTodo, p, place); nTodo++; }
+  });
+  const lw = strokeWidth();
+  const g = prepCanvas(e.dn, d);
+  g.lineWidth = lw; g.strokeStyle = l.color; g.stroke(pDone);
+  if (nTodo) {
+    const t = prepCanvas(e.td, d);
+    t.lineWidth = lw; t.strokeStyle = l.color; t.stroke(pTodo);
+  } else if (e.td.width) { e.td.width = 0; }
+  Object.assign(e, { base, vs, hasTd: nTodo > 0, mark: jobMark() });
+  return e;
+}
+function travelPath(place) {
   const travel = new Path2D();
+  let last = null;
   for (const o of order) {
     if (!o.on) continue;
     const l = doc.layers.find((x) => x.id === o.id);
     if (!l) continue;
-    const done = doneFn(l.id);
-    const pDone = new Path2D(), pTodo = new Path2D();
-    l.paths.forEach((p, idx) => {
-      const target = (done === null || done(idx)) ? pDone : pTodo;
+    for (const p of l.paths) {
       const [x, y] = toScreen(...place(p[0], p[1]));
-      if (showTravel && last) { travel.moveTo(last[0], last[1]); travel.lineTo(x, y); }
-      last = pathTo(target, p, place);
-    });
-    const isCur = l === curL;
-    const gd = isCur ? C.cur : C.cv, gt = isCur ? C.tcur : C.tc;
-    for (const g of [gd, gt]) { g.lineWidth = lw; g.lineCap = "round"; g.lineJoin = "round"; g.strokeStyle = l.color; }
-    if (isCur) { gd.stroke(pDone); lc.hasCur = true; } else paintInk(gd, pDone, 1);
-    paintInk(gt, pTodo, done === null ? 1 : 0.18);
+      if (last) { travel.moveTo(last[0], last[1]); travel.lineTo(x, y); }
+      last = toScreen(...place(p[p.length - 2], p[p.length - 1]));
+    }
   }
-  for (const k in C) { C[k].globalAlpha = 1; C[k].globalCompositeOperation = "source-over"; }
+  return travel;
+}
+function ensureCache(d) {
+  const vsNow = [view.s, view.ox, view.oy, S.place.x, S.place.y].join(",");
+  const common = [cv.width, cv.height, S.place.scale, S.place.rotate, inkView.penW].join(",");
+  const mk = jobMark();
+  const curId = mk && mk.layer >= 0 ? job.layer_ids[mk.layer] : null;
+  const want = [];
+  let dirty = false;
+  for (const o of order) {
+    const l = doc.layers.find((x) => x.id === o.id);
+    if (!l || !o.on) continue;
+    const ds = doneState(l);
+    const base = [common, l._pv, l.color, ds.key].join("|");
+    const e = LC.get(l.id);
+    if (!e || e.base !== base) dirty = true;
+    want.push([l, ds, base]);
+  }
+  // layers can only be mixed when drawn for the same view: if anything has to be redrawn
+  // (or the view settled after a move), redraw all of them for the current view
+  const vs = (dirty || lc.sharpen || !lc.vs) ? vsNow : lc.vs;
+  let drew = false;
+  for (const [l, ds, base] of want) {
+    const e = LC.get(l.id);
+    if (!e || e.base !== base || e.vs !== vs) { renderLayer(l, ds, d, base, vs); drew = true; }
+  }
+  if (drew || !lc.vs) Object.assign(lc, { vs, s: view.s, ox: view.ox, oy: view.oy, px: S.place.x, py: S.place.y });
+  lc.sharpen = false;
+  const showTravel = $("#showTravel").checked;
+  const key = [vs, want.map(([l, , base]) => l.id + "@" + base).join(","), inkView.ink, showTravel, TC.accent, curId].join("|");
+  if (key === lc.key) return;
+  // composite of all finished colours (except the one in progress)
+  const c = prepCanvas(lc.cv, d), t = prepCanvas(lc.tc, d);
+  for (const g of [c, t]) { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = "#fff"; g.fillRect(0, 0, cv.width, cv.height); }
+  for (const [l] of want) {
+    if (l.id === curId) continue;
+    const e = LC.get(l.id);
+    inkImage(c, e.dn, 1);
+    if (e.hasTd) inkImage(t, e.td, 0.18);
+  }
+  c.restore(); t.restore();
   if (showTravel) {
-    const c = C.cv;
     c.strokeStyle = TC.accent; c.globalAlpha = .55; c.lineWidth = 0.7; c.setLineDash([3, 3]);
-    c.stroke(travel); c.setLineDash([]); c.globalAlpha = 1;
+    c.stroke(travelPath(makePlacer())); c.setLineDash([]); c.globalAlpha = 1;
   }
-  Object.assign(lc, { key, s: view.s, ox: view.ox, oy: view.oy, px: S.place.x, py: S.place.y, mark: mk });
+  lc.key = key; lc.cur = curId;
+}
+// plotting: draw newly finished paths of the colour in progress (no full redraw)
+function addDonePaths(d) {
+  const mk = jobMark();
+  const e = lc.cur && LC.get(lc.cur);
+  if (!mk || !e || !e.mark || mk.layer !== e.mark.layer || mk.path === e.mark.path) return;
+  const l = doc.layers.find((x) => x.id === lc.cur);
+  if (!l) return;
+  const rev = job.reverse, old = e.mark;
+  if (rev ? mk.path > old.path : mk.path < old.path) { e.base = ""; return; }   // went backwards
+  const [i0, i1] = rev ? [mk.path + 1, old.path + 1] : [old.path, mk.path];    // newly finished
+  const place = makePlacer();
+  const add = new Path2D();
+  for (let idx = Math.max(0, i0); idx < Math.min(i1, l.paths.length); idx++) pathTo(add, l.paths[idx], place);
+  const lw = strokeWidth();
+  const g = e.dn.getContext("2d");
+  g.setTransform(d, 0, 0, d, 0, 0); g.lineCap = "round"; g.lineJoin = "round";
+  g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+  g.lineWidth = lw; g.strokeStyle = l.color; g.stroke(add);
+  if (e.hasTd) {                                   // erase it from the faded preview
+    const t = e.td.getContext("2d");
+    t.setTransform(d, 0, 0, d, 0, 0); t.lineCap = "round"; t.lineJoin = "round";
+    t.globalCompositeOperation = "destination-out"; t.globalAlpha = 1;
+    t.lineWidth = lw + 1.5; t.stroke(add);
+    t.globalCompositeOperation = "source-over";
+  }
+  e.mark = mk;
 }
 function blitLayers(d) {
-  const key = layerKey();
-  if (key !== lc.key) renderLayerCache(d, key);
+  ensureCache(d);
   const f = view.s / lc.s;
   const tx = view.ox - lc.ox * f + (S.place.x - lc.px) * view.s;
   const ty = view.oy - lc.oy * f + (S.place.y - lc.py) * view.s;
-  if (f === 1 && tx === 0 && ty === 0) {            // cache matches the view: add new progress
-    addDonePaths(d);
-    if (!lc.key) renderLayerCache(d, key);
-  }
-  const put = (img) => ctx.drawImage(img, tx * d, ty * d, img.width * f, img.height * f);
+  if (f === 1 && tx === 0 && ty === 0) addDonePaths(d);   // cache matches the view
+  const W = lc.cv.width * f, H = lc.cv.height * f, X = tx * d, Y = ty * d;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalCompositeOperation = "multiply";
-  put(lc.tc);
-  if (lc.mark && lc.mark.layer >= 0) put(lc.tcur);
-  put(lc.cv);
-  if (lc.hasCur) {                                   // layer in progress: like paintInk
-    const op = INK_OPACITY[inkView.ink] ?? 0.1;
-    put(lc.cur);
-    if (op > 0.02) { ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = op; put(lc.cur); }
+  ctx.drawImage(lc.tc, X, Y, W, H);
+  ctx.drawImage(lc.cv, X, Y, W, H);
+  const e = lc.cur && LC.get(lc.cur);
+  if (e) {                                          // colour in progress, live
+    if (e.hasTd) inkImage(ctx, e.td, 0.18, X, Y, W, H);
+    inkImage(ctx, e.dn, 1, X, Y, W, H);
   }
   ctx.restore();
   if (f !== 1 || tx !== 0 || ty !== 0) {           // moved/zoomed: redraw sharp once it settles
     clearTimeout(lc.timer);
-    lc.timer = setTimeout(() => { lc.key = ""; scheduleDraw(); }, 140);
+    lc.timer = setTimeout(() => { lc.sharpen = true; scheduleDraw(); }, 140);
   }
 }
 
@@ -908,7 +968,12 @@ function derivePaths() {
   for (const l of doc.layers) {
     if (!l.all) continue;
     const show = (l.subnames || []).map((n) => !hidden.has(`${l.id}/${n}`));
-    l.paths = show.every(Boolean) ? l.all : l.all.filter((_, i) => show[l.tags[i]]);
+    const hk = show.map((v) => (v ? 1 : 0)).join("");
+    if (l._hk !== hk || !l.paths) {      // only layers whose sublayer selection changed
+      l._hk = hk;
+      l.paths = show.every(Boolean) ? l.all : l.all.filter((_, i) => show[l.tags[i]]);
+      l._pv = ++docVersion;
+    }
     l.count = l.paths.length;
     (l.subs || []).forEach((sb) => { sb.hidden = hidden.has(`${l.id}/${sb.name}`); });
   }

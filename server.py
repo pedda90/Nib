@@ -18,6 +18,8 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
+import numpy as np
+
 import gcode as G
 import optimize as O
 from grbl import Job, Machine, list_ports
@@ -166,6 +168,7 @@ class App:
         self.doc_lock = threading.Lock()
         self.hidden = set()       # hidden sublayers "L<i>/<name>"
         self._opt_cache = {}      # (mode, layer, options) -> [(sublayer, path)], all sublayers together
+        self._all_cache = {}      # id(tagged) -> (tagged, rounded flat paths) for the JSON reply
         self._last_save = 0.0
 
     def _fw_received(self, fw):
@@ -197,6 +200,7 @@ class App:
             self.file_hash = hashlib.sha1(data).hexdigest()
             self.hidden = set()
             self._opt_cache = {}
+            self._all_cache = {}
             xs = [x for pl in res.polylines for x, _ in pl.pts] or [0]
             ys = [y for pl in res.polylines for _, y in pl.pts] or [0]
             self._bbox = [min(xs), min(ys), max(xs), max(ys)]
@@ -302,11 +306,29 @@ class App:
             base = {k: v for k, v in l.items() if k not in ("paths", "tagged")}
             if not light:
                 ix = {n: i for i, n in enumerate(l["subnames"])}
-                base["all"] = [[round(c, 2) for pt in p for c in pt] for _, p in l["tagged"]]
+                base["all"] = self._flat_all(l["tagged"])
                 base["tags"] = [ix[t] for t, _ in l["tagged"]]
             layers.append(base)
         return {"doc": {k: v for k, v in d.items() if k != "layers"} | {"layers": layers},
                 "took": round(took, 2), "resume": self.resume_info()}
+
+    def _flat_all(self, tagged):
+        """Paths as flat [x0, y0, x1, y1, …] rounded to 0.01 mm – computed once per
+        optimization result (rounding a million coordinates one by one takes ~0.5 s)."""
+        hit = self._all_cache.get(id(tagged))
+        if hit and hit[0] is tagged:
+            return hit[1]
+        lens = [2 * len(p) for _, p in tagged]
+        flat = np.fromiter((c for _, p in tagged for pt in p for c in pt), dtype=float, count=sum(lens))
+        vals = np.round(flat, 2).tolist()
+        out, o = [], 0
+        for n in lens:
+            out.append(vals[o:o + n])
+            o += n
+        if len(self._all_cache) > 40:
+            self._all_cache.clear()
+        self._all_cache[id(tagged)] = (tagged, out)
+        return out
 
     # ---------------------------------------------------------- settings
     def save_settings(self):

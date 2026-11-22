@@ -6,7 +6,9 @@ Every polyline carries its layer (top-level group) and its color.
 """
 from __future__ import annotations
 
+import io
 import math
+import re
 from dataclasses import dataclass, field
 
 from svgelements import (
@@ -136,11 +138,167 @@ def _path_to_polylines(path: Path, curve_step_mm: float) -> list:
     return [[(x * PX_TO_MM, y * PX_TO_MM) for x, y in pl] for pl in out]
 
 
+# ------------------------------------------------------------ fast path data
+# svgelements builds an object per path command, which takes seconds for hatching files
+# with hundreds of thousands of commands. Long "d" attributes are therefore taken out
+# before parsing (replaced by three moves that reveal the element's final transform)
+# and read here directly.
+BIG_D = 2000                      # characters from which a path's data is read directly
+_PATH_TAG = re.compile(r"<path\b[^>]*>", re.S)
+_D_ATTR = re.compile(r"(\sd\s*=\s*)([\"'])(.*?)\2", re.S)
+_TOKEN = re.compile(r"[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
+_NARGS = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "T": 2, "A": 7, "Z": 0}
+
+
+def _extract_big_paths(text):
+    """Replace long d attributes by a marker. Returns (new text, list of d strings)."""
+    big = []
+
+    def tag(m):
+        t = m.group(0)
+        dm = _D_ATTR.search(t)
+        if not dm or len(dm.group(3)) < BIG_D or re.search(r"[Aa]", dm.group(3)):
+            return t                                   # short, or with arcs: let svgelements do it
+        big.append(dm.group(3))
+        q = dm.group(2)
+        return (t[:dm.start()] + f"{dm.group(1)}{q}M0,0 M1,0 M0,1{q} data-nibd={q}{len(big) - 1}{q}"
+                + t[dm.end():])
+
+    return _PATH_TAG.sub(tag, text), big
+
+
+def _cubic_pts(x0, y0, x1, y1, x2, y2, x3, y3, tol):
+    d = max(math.hypot(x0 - 2 * x1 + x2, y0 - 2 * y1 + y2), math.hypot(x1 - 2 * x2 + x3, y1 - 2 * y2 + y3))
+    n = max(1, min(500, int(math.ceil(math.sqrt(0.75 * d / tol)))))
+    out = []
+    for i in range(1, n + 1):
+        t = i / n
+        mt = 1 - t
+        a, b, c, e = mt * mt * mt, 3 * mt * mt * t, 3 * mt * t * t, t * t * t
+        out.append((a * x0 + b * x1 + c * x2 + e * x3, a * y0 + b * y1 + c * y2 + e * y3))
+    return out
+
+
+def _fast_d(d, m):
+    """Path data -> polylines in mm. m = (a, b, c, d, e, f) maps user units to px.
+    Handles M L H V C S Q T Z (absolute and relative); no arcs (those take the slow way)."""
+    a, b, c, dd, e, f = m
+    tol = FLAT_TOL_MM / PX_TO_MM
+    k = PX_TO_MM
+    out = []
+    cur = []
+    toks = _TOKEN.findall(d)
+    i, n = 0, len(toks)
+    x = y = sx = sy = 0.0          # current point, subpath start (user units)
+    lcx = lcy = None               # last control point (for S/T)
+    lastcmd = ""
+    cmd = ""
+
+    def T(px, py):
+        return (a * px + c * py + e, b * px + dd * py + f)
+
+    while i < n:
+        t = toks[i]
+        if t[0].isalpha():
+            cmd = t
+            i += 1
+            if cmd in "Zz":
+                if cur:
+                    cur.append(T(sx, sy))
+                    if len(cur) > 1:
+                        out.append(cur)
+                cur = [T(sx, sy)]
+                x, y = sx, sy
+                lastcmd = cmd
+                continue
+        elif not cmd:
+            i += 1
+            continue
+        up = cmd.upper()
+        na = _NARGS[up]
+        if i + na > n:
+            break
+        try:
+            v = [float(z) for z in toks[i:i + na]]
+        except ValueError:
+            break
+        i += na
+        rel = cmd.islower()
+        if up == "M":
+            if len(cur) > 1:
+                out.append(cur)
+            x, y = (x + v[0], y + v[1]) if rel else (v[0], v[1])
+            sx, sy = x, y
+            cur = [T(x, y)]
+            cmd = "l" if rel else "L"          # further pairs are line-tos
+            lcx = None
+        elif up == "L":
+            x, y = (x + v[0], y + v[1]) if rel else (v[0], v[1])
+            cur.append(T(x, y)); lcx = None
+        elif up == "H":
+            x = x + v[0] if rel else v[0]
+            cur.append(T(x, y)); lcx = None
+        elif up == "V":
+            y = y + v[0] if rel else v[0]
+            cur.append(T(x, y)); lcx = None
+        elif up in "CS":
+            if up == "C":
+                c1x, c1y, c2x, c2y, ex, ey = v
+                if rel:
+                    c1x += x; c1y += y; c2x += x; c2y += y; ex += x; ey += y
+            else:
+                c2x, c2y, ex, ey = v
+                if rel:
+                    c2x += x; c2y += y; ex += x; ey += y
+                if lcx is not None and lastcmd.upper() in "CS":
+                    c1x, c1y = 2 * x - lcx, 2 * y - lcy
+                else:
+                    c1x, c1y = x, y
+            p0, p1, p2, p3 = T(x, y), T(c1x, c1y), T(c2x, c2y), T(ex, ey)
+            if not cur:
+                cur = [p0]
+            cur.extend(_cubic_pts(*p0, *p1, *p2, *p3, tol))
+            lcx, lcy = c2x, c2y
+            x, y = ex, ey
+        elif up in "QT":
+            if up == "Q":
+                qx, qy, ex, ey = v
+                if rel:
+                    qx += x; qy += y; ex += x; ey += y
+            else:
+                ex, ey = v
+                if rel:
+                    ex += x; ey += y
+                if lcx is not None and lastcmd.upper() in "QT":
+                    qx, qy = 2 * x - lcx, 2 * y - lcy
+                else:
+                    qx, qy = x, y
+            c1 = (x + 2 * (qx - x) / 3, y + 2 * (qy - y) / 3)
+            c2 = (ex + 2 * (qx - ex) / 3, ey + 2 * (qy - ey) / 3)
+            p0, p1, p2, p3 = T(x, y), T(*c1), T(*c2), T(ex, ey)
+            if not cur:
+                cur = [p0]
+            cur.extend(_cubic_pts(*p0, *p1, *p2, *p3, tol))
+            lcx, lcy = qx, qy
+            x, y = ex, ey
+        else:                                           # arc: not expected here
+            x, y = (x + v[5], y + v[6]) if rel else (v[5], v[6])
+            cur.append(T(x, y)); lcx = None
+        lastcmd = cmd
+    if len(cur) > 1:
+        out.append(cur)
+    return [[(px * k, py * k) for px, py in pl] for pl in out]
+
+
 def load_svg(source, curve_step_mm: float = 0.3) -> LoadResult:
     """source: file path or file-like object."""
     res = LoadResult()
+    big = []
     try:
-        svg = SVG.parse(source, reify=True, ppi=96.0)
+        raw = source.read() if hasattr(source, "read") else open(source, "rb").read()
+        text = raw.decode("utf-8-sig", errors="replace") if isinstance(raw, bytes) else raw
+        text, big = _extract_big_paths(text)
+        svg = SVG.parse(io.StringIO(text), reify=True, ppi=96.0)
     except Exception as e:
         raise ValueError(f"The file is empty or not a valid SVG ({e}).") from None
     try:
@@ -165,6 +323,17 @@ def load_svg(source, curve_step_mm: float = 0.3) -> LoadResult:
         if vals.get("display") == "none" or vals.get("visibility") == "hidden":
             return
         color = _color_of(shape)
+        if vals.get("data-nibd") is not None and big:
+            # long path data read directly; the three moves give the final transform
+            try:
+                q = [seg.end for seg in shape if isinstance(seg, Move)]
+                (ex, ey), (ax, ay), (cx, cy) = (q[0].x, q[0].y), (q[1].x, q[1].y), (q[2].x, q[2].y)
+                m = (ax - ex, ay - ey, cx - ex, cy - ey, ex, ey)
+                for pl in _fast_d(big[int(vals["data-nibd"])], m):
+                    res.polylines.append(Polyline(pl, layer, color, sub))
+            except Exception:
+                pass
+            return
         # fast path for simple lines (DrawingBot/Illustrator hatching)
         if isinstance(shape, SimpleLine) and shape.transform.is_identity():
             res.polylines.append(Polyline(
