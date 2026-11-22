@@ -58,8 +58,7 @@ class Machine:
         self._odd = collections.deque(maxlen=200)   # odd lines (time, text)
         self.lost_acks_total = 0
         self._diag_count = 0
-        self._rx_size = 0         # controller receive buffer size, learnt from 'Bf' while idle
-        self._bf_prev = None      # (time, spare bytes) from the previous buffer report
+        self._bf_prev = None      # time of the previous buffer report with free planner blocks
         self._bf_asked = False
 
     # ------------------------------------------------------------------ log
@@ -83,7 +82,6 @@ class Machine:
         self.banner_event.clear()
         self.zero_set = False
         self.fw = {}
-        self._rx_size = 0
         self._bf_prev = None
         self._bf_asked = False
         self._running = True
@@ -274,7 +272,7 @@ class Machine:
             except ValueError:
                 continue
             if k == "Bf" and len(nums) >= 2:
-                self._check_bf(int(nums[1]))
+                self._check_bf(int(nums[0]))
             elif k == "MPos":
                 self.mpos = (nums + [0, 0, 0])[:3]
             elif k == "WPos":
@@ -292,44 +290,40 @@ class Machine:
             time.sleep(0.4 if (self.inflight or self.pending) else 0.2)
             self._check_lost_acks()
 
-    def _check_bf(self, rx_free):
-        """Recover lost 'ok's from the buffer report: the controller says how many bytes
-        are still waiting in its receive buffer. If we count clearly more bytes in flight
-        (in two reports in a row), the difference are lines whose 'ok' got lost. Stays on
-        the safe side: two lines' worth of margin (a line being planned, a line on the
-        wire), and only lines sent more than a second ago are released."""
+    # lines that never make the controller wait: plain moves and modal G codes
+    PLAIN_MOVE = re.compile(r"(G(?:0|1|21|53|90|91)\s*)+([XYZF]-?[\d.]+\s*)*")
+
+    def _check_bf(self, planner_free):
+        """Recover lost 'ok's from the buffer report ('Bf:<free planner blocks>,<rx>').
+        FluidNC takes in received lines right away; a line only waits when the motion
+        planner is full. So if the planner had free blocks in two reports in a row, every
+        plain move sent before the first of them (minus a margin for the USB transfer) has
+        been planned and its 'ok' sent ahead of the second report – if it hasn't arrived,
+        it got lost. (The receive-buffer number is no
+        help: FluidNC always reports it as empty.)"""
         now = time.time()
         with self.cv:
-            if not self.inflight:
-                if not self.pending:
-                    self._rx_size = max(self._rx_size, rx_free)
+            if not self.inflight or planner_free < 1:
                 self._bf_prev = None
                 return
-            if self._rx_size < RX_BUFFER:
-                return                                  # size not known yet
-            ours = sum(i[0] for i in self.inflight)
-            spare = ours - (self._rx_size - rx_free) - 2 * max(i[0] for i in self.inflight)
-            prev, self._bf_prev = self._bf_prev, (now, spare)
-            if not prev or now - prev[0] > 2.0:
+            prev, self._bf_prev = self._bf_prev, now
+            if prev is None or now - prev > 1.0:
                 return
-            spare = min(spare, prev[1])
-            n = freed = 0
-            while self.inflight and n < len(self.inflight):
-                size, _line, _tag, sent = self.inflight[0]
-                if freed + size > spare or now - sent < 1.0:
+            n = 0
+            while self.inflight:
+                _size, line, _tag, sent = self.inflight[0]
+                if sent > prev - 0.25 or not self.PLAIN_MOVE.fullmatch(line.strip()):
                     break
                 self.inflight.popleft()
-                freed += size
                 n += 1
             if not n:
                 return
-            self._bf_prev = None
             self.cv.notify_all()
         self.lost_acks_total += n
-        self._log("info", f"{n} lost acknowledgement(s) recovered from the buffer report "
+        self._log("info", f"{n} lost acknowledgement(s) recovered while plotting "
                           f"(total {self.lost_acks_total})")
 
-    LOST_ACK_WAIT = 0.8   # s of standstill after which missing 'ok' are assumed
+    LOST_ACK_WAIT = 0.4   # s of standstill after which missing 'ok' are assumed
 
     def _check_lost_acks(self):
         """Safety net: if the plotter went to standstill (Idle) *after* the oldest pending
