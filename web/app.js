@@ -105,12 +105,92 @@ function machineToPaper(x, y) {
 }
 
 // ---------------------------------------------------------------- time
-function layerSeconds(l) {
-  const m = S.machine, s = S.place.scale;
+/* Time model like the controller's motion planner: trapezoidal speed profiles with
+   acceleration, corner speeds from the junction deviation and a full stop for every pen
+   lift. Short hatching strokes are dominated by accelerating and lifting, not by the feed.
+   The plain model is then scaled by a factor learned from real plots (timeFactor), and
+   while plotting by the measured speed of the current layer. */
+const ACCEL_DEFAULT = { xy: 1000, z: 500, jd: 0.01 };   // mm/s², mm (used if the firmware does not report them)
+function accel() {
+  const a = (st && st.accel) || {};
+  return { xy: a.xy || ACCEL_DEFAULT.xy, z: a.z || ACCEL_DEFAULT.z, jd: a.jd || ACCEL_DEFAULT.jd };
+}
+function blockTime(L, v0, v1, vn, a) {
+  const da = (vn * vn - v0 * v0) / (2 * a), dd = (vn * vn - v1 * v1) / (2 * a);
+  if (da + dd <= L) return (vn - v0) / a + (vn - v1) / a + (L - da - dd) / vn;
+  const vp = Math.sqrt(Math.max((2 * a * L + v0 * v0 + v1 * v1) / 2, v0 * v0, v1 * v1));
+  return Math.max(0, vp - v0) / a + Math.max(0, vp - v1) / a;
+}
+let _segL = new Float64Array(256), _segX = new Float64Array(256), _segY = new Float64Array(256), _vj = new Float64Array(257);
+function polyTime(p, s, v, a, jd) {         // p = [x0,y0,x1,y1,…] in design units, s = scale
+  const n = p.length / 2 - 1;
+  if (n <= 0) return 0;
+  if (n + 1 > _vj.length) {
+    const k = 2 * n + 2;
+    _segL = new Float64Array(k); _segX = new Float64Array(k); _segY = new Float64Array(k); _vj = new Float64Array(k + 1);
+  }
+  let m = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = (p[2 * i + 2] - p[2 * i]) * s, dy = (p[2 * i + 3] - p[2 * i + 1]) * s, L = Math.sqrt(dx * dx + dy * dy);
+    if (L > 1e-9) { _segL[m] = L; _segX[m] = dx / L; _segY[m] = dy / L; m++; }
+  }
+  if (!m) return 0;
+  const k0 = a * jd;
+  _vj[0] = 0; _vj[m] = 0;
+  for (let i = 1; i < m; i++) {
+    const c = -(_segX[i - 1] * _segX[i] + _segY[i - 1] * _segY[i]);
+    if (c > 0.999999) _vj[i] = 0;
+    else if (c < -0.999999) _vj[i] = v;
+    else { const h = Math.sqrt(0.5 * (1 - c)); _vj[i] = Math.min(v, Math.sqrt(k0 * h / (1 - h))); }
+  }
+  for (let i = m - 1; i > 0; i--) _vj[i] = Math.min(_vj[i], Math.sqrt(_vj[i + 1] * _vj[i + 1] + 2 * a * _segL[i]));
+  for (let i = 1; i < m; i++) _vj[i] = Math.min(_vj[i], Math.sqrt(_vj[i - 1] * _vj[i - 1] + 2 * a * _segL[i - 1]));
+  let t = 0;
+  for (let i = 0; i < m; i++) t += blockTime(_segL[i], _vj[i], _vj[i + 1], v, a);
+  return t;
+}
+/* Cumulative model seconds of a layer: cum[i] = time before path i starts, cum[n] = whole layer
+   (travel to the path, pen down, drawing, pen up). The time of every single path is cached
+   (hiding a sublayer only re-adds them up); the sum is cached per path list and settings. */
+let _ptKey = "", _pt = new WeakMap();
+function layerCum(l) {
+  const m = S.machine, s = S.place.scale, A = accel();
+  const key = [m.feed_draw, m.feed_travel, m.z_feed, m.z_up, m.z_down, m.pen_up_delay, m.pen_down_delay,
+    s, A.xy, A.z, A.jd].join("|");
+  if (l._tk === key && l._cumOf === l.paths && l._cum) return l._cum;
+  if (_ptKey !== key) { _ptKey = key; _pt = new WeakMap(); }
   const fd = Math.max(m.feed_draw, 1) / 60, ft = Math.max(m.feed_travel, 1) / 60, zf = Math.max(m.z_feed, 1) / 60;
-  const zt = Math.abs(m.z_down - m.z_up) / zf * 2;
-  const delays = (+m.pen_up_delay || 0) + (+m.pen_down_delay || 0);
-  return (l.draw_len * s / fd + l.travel_len * s / ft + l.lifts * (zt + delays + 0.05)) * 1.15;
+  const dz = Math.abs(m.z_down - m.z_up);
+  const lift = 2 * (dz > 0 ? blockTime(dz, 0, 0, zf, A.z) : 0) + (+m.pen_up_delay || 0) + (+m.pen_down_delay || 0);
+  const paths = l.paths || [];
+  const cum = new Float64Array(paths.length + 1);
+  const tr = [0, 0, 0, 0];
+  let t = 0, lx = null, ly = null;
+  for (let i = 0; i < paths.length; i++) {
+    const p = paths[i];
+    cum[i] = t;
+    if (lx !== null) { tr[0] = lx; tr[1] = ly; tr[2] = p[0]; tr[3] = p[1]; t += polyTime(tr, s, ft, A.xy, A.jd); }
+    let pt = _pt.get(p);
+    if (pt === undefined) { pt = polyTime(p, s, fd, A.xy, A.jd); _pt.set(p, pt); }
+    t += lift + pt;
+    lx = p[p.length - 2]; ly = p[p.length - 1];
+  }
+  cum[paths.length] = t;
+  l._tk = key; l._cum = cum; l._cumOf = l.paths;
+  return cum;
+}
+function timeFactor() {
+  let f = 1;
+  try { f = +localStorage.getItem("timeFactor") || 1; } catch { /* no storage */ }
+  return Math.min(4, Math.max(0.25, f));
+}
+function learnTimeFactor(r) {          // r = measured / model of a finished layer
+  const f = Math.min(4, Math.max(0.25, timeFactor() * 0.6 + r * 0.4));
+  try { localStorage.setItem("timeFactor", String(f)); } catch { /* no storage */ }
+}
+function layerSeconds(l) {
+  const c = layerCum(l);
+  return c[c.length - 1] * timeFactor();
 }
 
 // --------------------------------------------------------------- Theme
@@ -724,7 +804,7 @@ function renderLayers() {
   const box = $("#layers");
   if (!doc) { box.textContent = "–"; $("#totalTime").textContent = ""; return; }
   box.classList.remove("muted");
-  let total = 0;
+  let total = 0, left = null;
   box.innerHTML = "";
   order.forEach((o, i) => {
     const l = doc.layers.find((x) => x.id === o.id);
@@ -732,15 +812,20 @@ function renderLayers() {
     if (o.on) total += secs;
     const row = document.createElement("div");
     row.className = "layer";
+    let tm = fmtTime(secs);
     if (job && job.layer_ids && jobActive()) {
       const ji = job.layer_ids.indexOf(o.id);
       if (ji === job.layer) row.classList.add("current");
       if (ji >= 0 && ji < job.layer) row.classList.add("done");
+      if (jobT && ji >= 0) {
+        tm = ji < job.layer ? "done" : `${fmtTime(jobT.perLeft[ji])} left`;
+        left = jobT.totalLeft;
+      }
     }
     row.innerHTML = `<input type="checkbox" ${o.on ? "checked" : ""} ${jobActive() ? "disabled" : ""}>
       <span class="sw" style="background:${l.color}"></span>
       <span class="nm" title="${esc(l.name)}">${esc(l.name)}</span>
-      <span class="meta">${fmtNum(l.count)} paths<br>${fmtNum(l.draw_len * S.place.scale / 1000, 1)} m · ${fmtTime(secs)}</span>
+      <span class="meta">${fmtNum(l.count)} paths<br>${fmtNum(l.draw_len * S.place.scale / 1000, 1)} m · ${tm}</span>
       <span class="mv"><button title="Move up"><svg class="ic"><use href="#i-up"/></svg></button><button title="Move down"><svg class="ic"><use href="#i-down"/></svg></button></span>`;
     row.querySelector("input").onchange = (e) => { o.on = e.target.checked; renderLayers(); scheduleDraw(); };
     const [up, dn] = row.querySelectorAll(".mv button");
@@ -758,7 +843,7 @@ function renderLayers() {
       box.appendChild(sr);
     });
   });
-  $("#totalTime").textContent = `≈ ${fmtTime(total)}`;
+  $("#totalTime").textContent = left !== null ? `≈ ${fmtTime(left)} left` : `≈ ${fmtTime(total)}`;
   // start selection
   const sel = $("#startLayer"), prev = sel.value;
   sel.innerHTML = order.filter((o) => o.on).map((o, i) => `<option value="${i}">${i + 1}. ${esc(doc.layers.find((x) => x.id === o.id).name)}</option>`).join("");
@@ -846,6 +931,51 @@ function renderResume() {
   };
 }
 
+/* Remaining time of the running job. Model seconds (layerCum) are scaled by the learned
+   factor; once the current layer has run for a while, its measured speed takes over. */
+let jobT = null, learned = "";
+function jobTimes() {
+  const f = timeFactor(), rev = job.reverse;
+  const start = job.start || [0, null];
+  let tot = 0, done = 0, futRaw = 0, curLeftRaw = 0, curDone = 0, curSince = 0;
+  const per = [];
+  job.layers.forEach((jl, i) => {
+    const dl = doc && doc.layers.find((x) => x.id === jl.id);
+    const cum = dl ? layerCum(dl) : null;
+    const n = cum ? cum.length - 1 : 0, Tl = cum ? cum[n] : 0;
+    const at = (p) => (p === null || p === undefined) ? (rev ? Tl : 0)
+      : rev ? Tl - cum[Math.min(n, Math.max(0, p + 1))] : cum[Math.min(n, Math.max(0, p))];
+    let d = i < job.layer || job.state === "done" ? Tl : i > job.layer ? 0 : at(job.path);
+    if (i < start[0]) d = Tl;
+    tot += Tl; done += d;
+    per.push(Tl - d);
+    if (i === job.layer && job.state !== "done") {
+      curDone = d; curLeftRaw = Tl - d;
+      curSince = d - (i === start[0] ? at(start[1]) : 0);
+    } else if (i > job.layer) futRaw += Tl;
+  });
+  // measured speed of the current layer (time since the layer started vs. model)
+  let rLive = null, w = 0;
+  if (job.state !== "pen_change" && (job.layer_elapsed || 0) > 45 && curSince > 30) {
+    rLive = job.layer_elapsed / curSince;
+    w = Math.min(1, curSince / 240);
+  }
+  const rCur = rLive === null ? f : f * (1 - w) + rLive * w;
+  const rFut = rLive === null ? f : f * (1 - w / 2) + rLive * (w / 2);
+  // learn from a layer once it is finished (or the plot ends)
+  if (rLive !== null && curSince > 120) jobTimes.last = { id: job.id, layer: job.layer, r: rLive };
+  const lst = jobTimes.last;
+  if (lst && lst.id === job.id && (job.layer !== lst.layer || !jobActive())) {
+    const k = `${lst.id}|${lst.layer}`;
+    if (learned !== k) { learned = k; learnTimeFactor(lst.r); }
+    jobTimes.last = null;
+  }
+  void curDone;
+  const penLeft = curLeftRaw * rCur;
+  return { frac: tot ? done / tot : 0, penLeft, totalLeft: penLeft + futRaw * rFut,
+    perLeft: per.map((x, i) => x * (i === job.layer ? rCur : rFut)) };
+}
+
 function renderJob() {
   const active = jobActive();
   // the resume hint only makes sense while no plot is running
@@ -868,25 +998,11 @@ function renderJob() {
     pc.querySelector("button").onclick = () => api("/api/job/resume", {});
   } else { pc.hidden = true; pc.dataset.html = ""; }
 
-  if (!job) { $("#progText").textContent = "Ready"; $("#progBar").style.width = "0"; $("#sbJob").textContent = ""; return; }
-  let total = 0, done = 0, estTotal = 0, estDone = 0;
-  job.layers.forEach((l, i) => {
-    const dl = doc && doc.layers.find((x) => x.id === l.id);
-    const secs = dl ? layerSeconds(dl) : 0;
-    total += l.count; estTotal += secs;
-    let d = i < job.layer ? l.count : i === job.layer ? (job.reverse ? l.count - 1 - job.path : job.path) : 0;
-    if (job.state === "done") d = l.count;
-    done += d; estDone += l.count ? secs * d / l.count : 0;
-  });
-  const frac = total ? done / total : 0;
-  const efrac = estTotal ? estDone / estTotal : frac;
+  if (!job) { jobT = null; $("#progText").textContent = "Ready"; $("#progBar").style.width = "0"; $("#sbJob").textContent = ""; return; }
+  jobT = doc && jobActive() ? jobTimes() : null;
+  const T = jobT || jobTimes();
+  const efrac = T.frac, remain = T.totalLeft;
   $("#progBar").style.width = (efrac * 100).toFixed(1) + "%";
-  let remain = estTotal - estDone;
-  if (job.elapsed > 60 && efrac > 0.02 && job.state !== "done") {
-    const startFrac = job._startFrac ?? efrac;
-    void startFrac;
-    remain = remain * 0.5 + (job.elapsed / Math.max(efrac, 0.001)) * (1 - efrac) * 0.5;
-  }
   const L = job.layers[Math.min(job.layer, job.layers.length - 1)];
   const parts = [];
   const stateName = { "running": "Plotting", "paused": "Paused", "pen_change": "Pen change" }[job.state] || "";
@@ -895,7 +1011,8 @@ function renderJob() {
   else {
     parts.push(`${stateName} · layer ${job.layer + 1}/${job.layers.length} “${L ? L.name : ""}”`);
     parts.push(`Path ${fmtNum(job.path + 1)}/${fmtNum(L ? L.count : 0)} · ${fmtNum(efrac * 100, 1)} %`);
-    parts.push(`${fmtTime(job.elapsed)} elapsed · ~${fmtTime(remain)} left`);
+    parts.push(`This pen: ~${fmtTime(T.penLeft)} left`);
+    parts.push(`Total: ~${fmtTime(remain)} left · ${fmtTime(job.elapsed)} elapsed`);
   }
   if (job.errors) parts.push(`${job.errors} error${job.errors > 1 ? "s" : ""} – see console`);
   $("#progText").innerHTML = parts.map(esc).join("<br>");

@@ -436,7 +436,14 @@ class Machine:
                 "wco": [round(v, 3) for v in self.wco],
                 "fw_max": [self.fw.get(130), self.fw.get(131)] if getattr(self, "fw", None) else None,
                 "fw_soft_limits": bool(getattr(self, "fw", {}).get(20)),
+                "accel": self.accel(),
             }
+
+    def accel(self):
+        """Acceleration (mm/s²) and junction deviation (mm) from $120–$122 / $11, if reported."""
+        fw = getattr(self, "fw", None) or {}
+        xy = min(fw.get(120) or 0, fw.get(121) or 0) or None
+        return {"xy": xy, "z": fw.get(122) or None, "jd": fw.get(11) or None}
 
     def log_since(self, n):
         with self.lock:
@@ -468,6 +475,8 @@ class Job:
         self.t_start = time.time()
         self.t_paused = 0.0
         self._pause_t = None
+        self._wait_t = None                 # waiting for a pen change (not counted as plot time)
+        self.layer_el0 = 0.0                # plot time when the current layer started
         self.done_paths_before = 0
         self._continue = threading.Event()
         self._abort = False
@@ -563,7 +572,10 @@ class Job:
                                 + " – the head is at the origin. "
                                 f"You can jog and reset the origin, then continue.")
                 self._continue.clear()
+                self._wait_t = time.time()
                 self._continue.wait()
+                self.t_paused += time.time() - self._wait_t
+                self._wait_t = None
                 if self._abort:
                     return
                 # if a jog is still running: let it finish first
@@ -573,6 +585,7 @@ class Job:
                     return
                 self.state = "running"
                 self.message = ""
+                self.layer_el0 = self.elapsed()
                 self.m.queue_lines(self.header())
             sp = self.start_path if li == self.start_layer else None
             lines = self.build_layer(li, sp)
@@ -618,6 +631,8 @@ class Job:
         t = time.time() - self.t_start - self.t_paused
         if self._pause_t:
             t -= time.time() - self._pause_t
+        if self._wait_t:
+            t -= time.time() - self._wait_t
         return t
 
     def elapsed_str(self):
@@ -633,6 +648,9 @@ class Job:
             "lines_total": self.lines_total,
             "lines_acked": self.lines_acked,
             "elapsed": self.elapsed(),
+            "layer_elapsed": self.elapsed() - self.layer_el0,
+            "start": [self.start_layer, self.start_path],
+            "id": self.t_start,
             "errors": self.errors,
             "resume": list(self.resume_point()),
         }
