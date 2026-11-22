@@ -862,20 +862,18 @@ function renderLayers() {
     if (o.on) total += secs;
     const row = document.createElement("div");
     row.className = "layer";
-    let tm = fmtTime(secs);
     if (job && job.layer_ids && jobActive()) {
       const ji = job.layer_ids.indexOf(o.id);
       if (ji === job.layer) row.classList.add("current");
       if (ji >= 0 && ji < job.layer) row.classList.add("done");
       if (jobT && ji >= 0) {
-        tm = ji < job.layer ? "done" : `${fmtTime(jobT.perLeft[ji])} left`;
         left = jobT.totalLeft;
       }
     }
     row.innerHTML = `<input type="checkbox" ${o.on ? "checked" : ""} ${jobActive() ? "disabled" : ""}>
       <span class="sw" style="background:${l.color}"></span>
       <span class="nm" title="${esc(l.name)}">${esc(l.name)}</span>
-      <span class="meta">${fmtNum(l.count)} paths<br>${fmtNum(l.draw_len * S.place.scale / 1000, 1)} m · ${tm}</span>
+      <span class="meta">${fmtNum(l.count)} paths<br>${fmtNum(l.draw_len * S.place.scale / 1000, 1)} m</span>
       <span class="mv"><button title="Move up"><svg class="ic"><use href="#i-up"/></svg></button><button title="Move down"><svg class="ic"><use href="#i-down"/></svg></button></span>`;
     row.querySelector("input").onchange = (e) => { o.on = e.target.checked; renderLayers(); scheduleDraw(); };
     const [up, dn] = row.querySelectorAll(".mv button");
@@ -987,7 +985,7 @@ let jobT = null, learned = "";
 function jobTimes() {
   const f = timeFactor(), rev = job.reverse;
   const start = job.start || [0, null];
-  let tot = 0, done = 0, futRaw = 0, curLeftRaw = 0, curDone = 0, curSince = 0;
+  let tot = 0, done = 0, futRaw = 0, curLeftRaw = 0, curTotalRaw = 0, curDone = 0, curSince = 0;
   const per = [];
   job.layers.forEach((jl, i) => {
     const dl = doc && doc.layers.find((x) => x.id === jl.id);
@@ -1000,7 +998,7 @@ function jobTimes() {
     tot += Tl; done += d;
     per.push(Tl - d);
     if (i === job.layer && job.state !== "done") {
-      curDone = d; curLeftRaw = Tl - d;
+      curDone = d; curLeftRaw = Tl - d; curTotalRaw = Tl;
       curSince = d - (i === start[0] ? at(start[1]) : 0);
     } else if (i > job.layer) futRaw += Tl;
   });
@@ -1022,7 +1020,7 @@ function jobTimes() {
   }
   void curDone;
   const penLeft = curLeftRaw * rCur;
-  return { frac: tot ? done / tot : 0, penLeft, totalLeft: penLeft + futRaw * rFut,
+  return { frac: tot ? done / tot : 0, penLeft, penTotal: curTotalRaw * rCur, totalLeft: penLeft + futRaw * rFut,
     perLeft: per.map((x, i) => x * (i === job.layer ? rCur : rFut)) };
 }
 
@@ -1051,6 +1049,7 @@ function renderJob() {
   if (!job) { jobT = null; $("#progText").textContent = "Ready"; $("#progBar").style.width = "0"; $("#sbJob").textContent = ""; return; }
   jobT = doc && jobActive() ? jobTimes() : null;
   const T = jobT || jobTimes();
+  if (jobT) $("#totalTime").textContent = `≈ ${fmtTime(T.totalLeft)} left`;
   const efrac = T.frac, remain = T.totalLeft;
   $("#progBar").style.width = (efrac * 100).toFixed(1) + "%";
   const L = job.layers[Math.min(job.layer, job.layers.length - 1)];
@@ -1061,7 +1060,7 @@ function renderJob() {
   else {
     parts.push(`${stateName} · layer ${job.layer + 1}/${job.layers.length} “${L ? L.name : ""}”`);
     parts.push(`Path ${fmtNum(job.path + 1)}/${fmtNum(L ? L.count : 0)} · ${fmtNum(efrac * 100, 1)} %`);
-    parts.push(`This pen: ~${fmtTime(T.penLeft)} left`);
+    parts.push(`This pen: ~${fmtTime(T.penLeft)} left of ${fmtTime(T.penTotal)}`);
     parts.push(`Total: ~${fmtTime(remain)} left · ${fmtTime(job.elapsed)} elapsed`);
   }
   if (job.errors) parts.push(`${job.errors} error${job.errors > 1 ? "s" : ""} – see console`);

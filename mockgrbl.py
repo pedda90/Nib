@@ -24,6 +24,10 @@ class MockSerial:
         self.is_open = True
         self._reset_flag = threading.Event()
         self._lines = queue.Queue()
+        self._rx = 0                  # bytes waiting in the receive buffer
+        self.rx_size = 256
+        self.report_mask = 1          # $10
+        self.drop_ok = 0.0            # test: probability that an 'ok' gets lost
         self._gen = 0
         threading.Thread(target=self._motion, daemon=True).start()
         threading.Thread(target=self._line_worker, daemon=True).start()
@@ -55,6 +59,7 @@ class MockSerial:
                 self.state = "Idle"
                 self.g92 = [0.0, 0.0, 0.0]
                 self._inbuf = b""
+                self._rx = 0
                 while not self._lines.empty():
                     try:
                         self._lines.get_nowait()
@@ -67,13 +72,22 @@ class MockSerial:
                 self._inbuf += c
                 if c == b"\n":
                     line = self._inbuf.decode(errors="ignore").strip().upper()
+                    self._rx += len(self._inbuf)
                     self._inbuf = b""
-                    self._lines.put(line)
+                    self._lines.put((line, len(line) + 1))
         return len(data)
 
     def _line_worker(self):
         while True:
-            self._line(self._lines.get())
+            line, n = self._lines.get()
+            self._rx = max(0, self._rx - n)
+            self._line(line)
+
+    def _ok(self):
+        import random
+        if self.drop_ok and random.random() < self.drop_ok:
+            return
+        self._out.put(b"ok\r\n")
 
     def readline(self):
         try:
@@ -94,10 +108,11 @@ class MockSerial:
     # --- internal ---------------------------------------------------------
     def _status(self):
         w = [self.mpos[i] - self.g92[i] for i in range(3)]
+        bf = (f"|Bf:{15 - self._planner.qsize()},{self.rx_size - self._rx - len(self._inbuf)}"
+              if self.report_mask & 2 else "")
         self._out.put(
-            f"<{self.state}|MPos:{self.mpos[0]:.3f},{self.mpos[1]:.3f},{self.mpos[2]:.3f}"
-            f"|FS:{int(self.feed)},0|WCO:{self.g92[0]:.3f},{self.g92[1]:.3f},{self.g92[2]:.3f}>\r\n"
-            .encode())
+            (f"<{self.state}|MPos:{self.mpos[0]:.3f},{self.mpos[1]:.3f},{self.mpos[2]:.3f}"
+             f"|FS:{int(self.feed)},0{bf}|WCO:{self.g92[0]:.3f},{self.g92[1]:.3f},{self.g92[2]:.3f}>\r\n").encode())
         _ = w
 
     def _line(self, line):
@@ -107,12 +122,15 @@ class MockSerial:
         if line == "$$":
             for s in ("$100=80.000", "$101=80.000", "$102=80.000", "$110=12000.000",
                       "$111=12000.000", "$112=6000.000", "$22=0", "$20=1",
-                      "$130=420.000", "$131=297.000", "$132=12.000"):
+                      "$130=420.000", "$131=297.000", "$132=12.000", f"$10={self.report_mask}",
+                      "$11=0.010", "$120=1000.000", "$121=1000.000", "$122=500.000"):
                 self._out.put((s + "\r\n").encode())
             self._out.put(b"ok\r\n")
             return
         if line.startswith("$J="):
             line = line[3:]
+        if line.startswith("$10="):
+            self.report_mask = int(float(line[4:]))
         if line.startswith("$"):
             self._out.put(b"ok\r\n")
             return
@@ -129,7 +147,7 @@ class MockSerial:
             if "G53" in line:
                 words["G53"] = 1
             self._planner.put((dict(words), "G91" in line, self._gen))
-            self._out.put(b"ok\r\n")
+            self._ok()
             return
         if g == 4:
             self._planner.put(({"DWELL": words.get("P", 0)}, False, self._gen))

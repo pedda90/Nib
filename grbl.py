@@ -58,6 +58,9 @@ class Machine:
         self._odd = collections.deque(maxlen=200)   # odd lines (time, text)
         self.lost_acks_total = 0
         self._diag_count = 0
+        self._rx_size = 0         # controller receive buffer size, learnt from 'Bf' while idle
+        self._bf_prev = None      # (time, spare bytes) from the previous buffer report
+        self._bf_asked = False
 
     # ------------------------------------------------------------------ log
     def _log(self, kind, text):
@@ -80,6 +83,9 @@ class Machine:
         self.banner_event.clear()
         self.zero_set = False
         self.fw = {}
+        self._rx_size = 0
+        self._bf_prev = None
+        self._bf_asked = False
         self._running = True
         self.state = "Connecting…"
         threading.Thread(target=self._reader, daemon=True).start()
@@ -228,6 +234,14 @@ class Machine:
                     pass
                 if int(k) in (130, 131) and self.fw.get(130) and self.fw.get(131) and self.on_fw:
                     self.on_fw(self.fw)
+                if int(k) == 10 and k == "10" and not self._bf_asked:
+                    self._bf_asked = True
+                    mask = int(self.fw[10])
+                    if not mask & 2:
+                        # status reports with buffer data ('Bf'): lets lost 'ok's be
+                        # recovered while plotting instead of waiting for a standstill
+                        self.send(f"$10={mask | 2}", tag=None)
+                        self._log("info", f"Buffer data enabled in status reports ($10={mask | 2})")
             elif line.lower().startswith("grbl") or (not line.startswith("[") and "uuna" in line.lower()):
                 self.version = line.split("[")[0].strip()
                 with self.cv:
@@ -259,7 +273,9 @@ class Machine:
                 nums = [float(x) for x in v.split(",")]
             except ValueError:
                 continue
-            if k == "MPos":
+            if k == "Bf" and len(nums) >= 2:
+                self._check_bf(int(nums[1]))
+            elif k == "MPos":
                 self.mpos = (nums + [0, 0, 0])[:3]
             elif k == "WPos":
                 self.mpos = [(nums + [0, 0, 0])[i] + self.wco[i] for i in range(3)]
@@ -271,8 +287,47 @@ class Machine:
     def _poller(self):
         while self._running:
             self._write(b"?")
-            time.sleep(0.2)
+            # while streaming, poll less often: every '?' can collide with an 'ok'
+            # (the controller then sometimes swallows it)
+            time.sleep(0.4 if (self.inflight or self.pending) else 0.2)
             self._check_lost_acks()
+
+    def _check_bf(self, rx_free):
+        """Recover lost 'ok's from the buffer report: the controller says how many bytes
+        are still waiting in its receive buffer. If we count clearly more bytes in flight
+        (in two reports in a row), the difference are lines whose 'ok' got lost. Stays on
+        the safe side: two lines' worth of margin (a line being planned, a line on the
+        wire), and only lines sent more than a second ago are released."""
+        now = time.time()
+        with self.cv:
+            if not self.inflight:
+                if not self.pending:
+                    self._rx_size = max(self._rx_size, rx_free)
+                self._bf_prev = None
+                return
+            if self._rx_size < RX_BUFFER:
+                return                                  # size not known yet
+            ours = sum(i[0] for i in self.inflight)
+            spare = ours - (self._rx_size - rx_free) - 2 * max(i[0] for i in self.inflight)
+            prev, self._bf_prev = self._bf_prev, (now, spare)
+            if not prev or now - prev[0] > 2.0:
+                return
+            spare = min(spare, prev[1])
+            n = freed = 0
+            while self.inflight and n < len(self.inflight):
+                size, _line, _tag, sent = self.inflight[0]
+                if freed + size > spare or now - sent < 1.0:
+                    break
+                self.inflight.popleft()
+                freed += size
+                n += 1
+            if not n:
+                return
+            self._bf_prev = None
+            self.cv.notify_all()
+        self.lost_acks_total += n
+        self._log("info", f"{n} lost acknowledgement(s) recovered from the buffer report "
+                          f"(total {self.lost_acks_total})")
 
     LOST_ACK_WAIT = 0.8   # s of standstill after which missing 'ok' are assumed
 
