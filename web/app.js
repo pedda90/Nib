@@ -314,6 +314,7 @@ $("#penW").onchange = saveInkView;
    Panning/zooming moves/scales the cached images right away and redraws them sharp once
    the movement stops. */
 let docVersion = 0;
+const viewOff = new Set();     // colours hidden in the preview only (while plotting)
 const mkCanvas = () => document.createElement("canvas");
 const LC = new Map();          // layer id -> { base, vs, dn, td, hasTd, mark }
 const lc = { cv: mkCanvas(), tc: mkCanvas(), key: "", vs: "", sharpen: false, cur: null,
@@ -404,7 +405,7 @@ function ensureCache(d) {
   let dirty = false;
   for (const o of order) {
     const l = doc.layers.find((x) => x.id === o.id);
-    if (!l || !o.on) continue;
+    if (!l || !o.on || viewOff.has(l.id)) continue;
     const ds = doneState(l);
     const base = [common, l._pv, l.color, ds.key].join("|");
     const e = LC.get(l.id);
@@ -438,7 +439,7 @@ function ensureCache(d) {
     c.strokeStyle = TC.accent; c.globalAlpha = .55; c.lineWidth = 0.7; c.setLineDash([3, 3]);
     c.stroke(travelPath(makePlacer())); c.setLineDash([]); c.globalAlpha = 1;
   }
-  lc.key = key; lc.cur = curId;
+  lc.key = key; lc.cur = want.some(([l]) => l.id === curId) ? curId : null;
 }
 // plotting: draw newly finished paths of the colour in progress (no full redraw)
 function addDonePaths(d) {
@@ -605,7 +606,7 @@ function pickPath(sx, sy) {
   const place = makePlacer();
   let best = null, bd = Infinity;
   for (const o of order) {
-    if (!o.on) continue;
+    if (!o.on || viewOff.has(o.id)) continue;
     const l = doc.layers.find((x) => x.id === o.id);
     l.paths.forEach((p, idx) => {
       for (let i = 0; i < p.length; i += 2) {
@@ -930,12 +931,20 @@ function renderLayers() {
         left = jobT.totalLeft;
       }
     }
-    row.innerHTML = `<input type="checkbox" ${o.on ? "checked" : ""} ${jobActive() ? "disabled" : ""}>
+    // while plotting, the boxes of the colours being plotted only show/hide them in the preview
+    const inJob = jobActive() && job.layer_ids && job.layer_ids.includes(o.id);
+    const shown = o.on && !(inJob && viewOff.has(o.id));
+    row.innerHTML = `<input type="checkbox" ${shown ? "checked" : ""} ${jobActive() && !inJob ? "disabled" : ""}
+      title="${inJob ? "Show/hide in the preview (doesn't change the plot)" : "Plot this colour"}">
       <span class="sw" style="background:${l.color}"></span>
       <span class="nm" title="${esc(l.name)}">${esc(l.name)}</span>
       <span class="meta">${fmtNum(l.count)} paths<br>${fmtNum(l.draw_len * S.place.scale / 1000, 1)} m</span>
       <span class="mv"><button title="Move up"><svg class="ic"><use href="#i-up"/></svg></button><button title="Move down"><svg class="ic"><use href="#i-down"/></svg></button></span>`;
-    row.querySelector("input").onchange = (e) => { o.on = e.target.checked; renderLayers(); scheduleDraw(); };
+    row.querySelector("input").onchange = (e) => {
+      if (inJob) { if (e.target.checked) viewOff.delete(o.id); else viewOff.add(o.id); }
+      else o.on = e.target.checked;
+      renderLayers(); scheduleDraw();
+    };
     const [up, dn] = row.querySelectorAll(".mv button");
     up.disabled = i === 0 || jobActive(); dn.disabled = i === order.length - 1 || jobActive();
     up.onclick = () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; renderLayers(); scheduleDraw(); };
@@ -1091,6 +1100,7 @@ function jobTimes() {
 
 function renderJob() {
   const active = jobActive();
+  if (!active && viewOff.size) { viewOff.clear(); renderLayers(); scheduleDraw(); }
   // the resume hint only makes sense while no plot is running
   if (active) $("#resumeBox").hidden = true;
   else if (resumeInfo && $("#resumeBox").hidden) renderResume();
