@@ -79,8 +79,18 @@ For development, `server.py --keep-running` turns that off.
 - Copes with a FluidNC quirk where acknowledgements (“ok”) occasionally go missing: the plot keeps
   running instead of stalling.
 
-## Feedback
+## Feedback and contributing
 Found a bug or have an idea? Please open an [issue](https://github.com/pedda90/Nib/issues).
+Changes are welcome as pull requests from a fork – see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+Nib is free for noncommercial use under the
+[PolyForm Noncommercial License 1.0.0](LICENSE.md): personal use, hobby projects, studying and
+changing the code, sharing it for free. **You may also sell plots and artwork you make with Nib.**
+Selling or bundling Nib itself, for example with a plotter or another product, is not permitted
+without written permission – just ask if you are interested.
+
+© 2026 Peter Dietrich
 
 ## Files
 | File | Contents |
