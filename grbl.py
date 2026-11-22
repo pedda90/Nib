@@ -63,6 +63,8 @@ class Machine:
 
     # ------------------------------------------------------------------ log
     def _log(self, kind, text):
+        """kind: info / warn / err / tx / ok … – "debug" entries are kept for diagnostics
+        (readable through /api/status) but not shown in the console."""
         with self.lock:
             last = self.log[-1] if self.log else None
             if last and last["k"] == kind and last["m"] == text and time.time() - last.get("ts", 0) < 5:
@@ -239,7 +241,7 @@ class Machine:
                         # status reports with buffer data ('Bf'): lets lost 'ok's be
                         # recovered while plotting instead of waiting for a standstill
                         self.send(f"$10={mask | 2}", tag=None)
-                        self._log("info", f"Buffer data enabled in status reports ($10={mask | 2})")
+                        self._log("debug", f"Buffer data enabled in status reports ($10={mask | 2})")
             elif line.lower().startswith("grbl") or (not line.startswith("[") and "uuna" in line.lower()):
                 self.version = line.split("[")[0].strip()
                 with self.cv:
@@ -320,7 +322,7 @@ class Machine:
                 return
             self.cv.notify_all()
         self.lost_acks_total += n
-        self._log("info", f"{n} lost acknowledgement(s) recovered while plotting "
+        self._log("debug", f"{n} lost acknowledgement(s) recovered while plotting "
                           f"(total {self.lost_acks_total})")
 
     LOST_ACK_WAIT = 0.4   # s of standstill after which missing 'ok' are assumed
@@ -345,15 +347,17 @@ class Machine:
             self.cv.notify_all()
             raw = list(self._raw)
         self.lost_acks_total += n
-        self._log("warn", f"{n} acknowledgement(s) from the plotter went missing – continuing (total {self.lost_acks_total})")
+        self._log("debug", f"{n} acknowledgement(s) from the plotter went missing – continuing (total {self.lost_acks_total})")
         self._write_diag(n, pend, raw)
 
     DIAG_FILE = "connection_diagnostics.log"
 
     def _write_diag(self, n, pend, raw):
         """Write the most recent sent/received lines to a file (max. 20 entries
-        per session) so you can see what happened to the 'ok'."""
-        if self._diag_count >= 20:
+        per session) so you can see what happened to the 'ok'. Only with the environment
+        variable NIB_DEBUG set."""
+        import os
+        if self._diag_count >= 20 or not os.environ.get("NIB_DEBUG"):
             return
         self._diag_count += 1
         try:

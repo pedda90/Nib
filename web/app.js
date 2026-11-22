@@ -1227,6 +1227,7 @@ $("#cmdForm").onsubmit = (e) => {
   $("#cmd").value = "";
 };
 function addLog(e) {
+  if (e.k === "debug") return;          // internal diagnostics, handled automatically
   const box = $("#log");
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
   const div = document.createElement("div");
