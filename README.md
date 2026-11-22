@@ -7,12 +7,12 @@ Light and dark theme (follows Windows, or switch with the button at the top righ
 
 **Every control and setting explained: [USAGE.md](USAGE.md)**
 
-![Nib in light mode, paused at a pen change after two of three layers](docs/screenshot-light.png)
+![Nib in dark mode, paused at a pen change after two of three layers](docs/screenshot-dark.png)
 
 <details>
-<summary>Dark mode</summary>
+<summary>Light mode</summary>
 
-![Nib in dark mode](docs/screenshot-dark.png)
+![Nib in light mode](docs/screenshot-light.png)
 
 </details>
 
