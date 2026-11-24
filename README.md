@@ -106,11 +106,14 @@ Found a bug or have an idea? Please open an [issue](https://github.com/pedda90/N
 Changes are welcome as pull requests from a fork – see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
-Nib is free for noncommercial use under the
-[PolyForm Noncommercial License 1.0.0](LICENSE.md): personal use, hobby projects, studying and
-changing the code, sharing it for free. **You may also sell plots and artwork you make with Nib.**
-Selling or bundling Nib itself, for example with a plotter or another product, is not permitted
-without written permission – just ask if you are interested.
+Nib is a hobby project, and you're welcome to use it for free: for your own plots, for learning,
+for tinkering with the code and for sharing it with others. Selling the drawings you make with it
+is fine too.
+
+The one thing I'd ask: please don't sell Nib itself or ship it with a product (like a plotter)
+without talking to me first. If you have something like that in mind, just get in touch.
+
+The fine print is in [LICENSE.md](LICENSE.md) (PolyForm Noncommercial 1.0.0).
 
 © 2026 Peter Dietrich
 
