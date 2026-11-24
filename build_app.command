@@ -33,8 +33,18 @@ echo "[3/3] Building Nib.app (about a minute)..."
   --distpath "$HERE/dist" --workpath "$HERE/build/mac" --specpath "$HERE/build/mac" \
   app.py || fail
 
+# Version (from server.py) and bundle id for Finder's "Get Info".
+# Changing Info.plist invalidates the signature, so the app is signed again (ad hoc).
+VERSION="$(sed -n 's/^VERSION = "\([^"]*\)".*/\1/p' server.py)"
+PLIST="$HERE/dist/Nib.app/Contents/Info.plist"
+plist() { /usr/libexec/PlistBuddy -c "Set :$1 $2" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :$1 string $2" "$PLIST"; }
+plist CFBundleIdentifier io.github.pedda90.nib || fail
+plist CFBundleShortVersionString "$VERSION" || fail
+plist CFBundleVersion "$VERSION" || fail
+codesign --force --deep --sign - "$HERE/dist/Nib.app" || fail
+
 rm -rf "$HERE/Nib.app"
 mv "$HERE/dist/Nib.app" "$HERE/Nib.app" && rm -rf "$HERE/dist"
 echo
-echo "Done: Nib.app"
+echo "Done: Nib.app (version $VERSION)"
 pause

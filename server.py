@@ -25,6 +25,8 @@ import optimize as O
 from grbl import Job, Machine, list_ports
 from svgload import load_svg
 
+VERSION = "1.1.0"   # shown in Nib.app's "Get Info"; bump for every release
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, "frozen", False):
     # as Nib.exe: the interface is inside the exe, settings live next to the exe
@@ -488,7 +490,7 @@ NO_POLL_LIMIT = 180  # s without a heartbeat (crash; background tabs poll only r
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Nib/1.0"
+    server_version = f"Nib/{VERSION}"
 
     def log_message(self, *a):
         pass

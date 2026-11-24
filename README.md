@@ -120,7 +120,7 @@ without written permission – just ask if you are interested.
 | `gcode.py` | Placement and G-code |
 | `mockgrbl.py` | Simulated plotter |
 | `app.py` | Program window (Nib.exe / Nib.app) |
-| `build_exe.bat`, `Start Nib.bat` | Build / start on Windows |
+| `build_exe.bat`, `Start Nib.bat` | Build / start on Windows (`version_info.py` adds the version to the exe) |
 | `build_app.command`, `Start Nib.command` | Build / start on macOS |
 | `web/` | User interface (fonts: IBM Plex, SIL Open Font License, see `web/fonts/`) |
 | `settings.json`, `job_state.json` | Saved settings and resume point (created automatically) |

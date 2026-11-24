@@ -15,8 +15,10 @@ if not exist ".venv\Scripts\python.exe" (
 echo [2/3] Installing/checking packages ^(the first run can take a few minutes^)...
 ".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -q -r requirements.txt pyinstaller || (pause & exit /b 1)
 echo [3/3] Building Nib.exe ^(about half a minute^)...
+rem version shown under Properties - Details, taken from VERSION in server.py
+".venv\Scripts\python.exe" version_info.py "%~dp0build\version_info.txt" || (pause & exit /b 1)
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onefile --windowed --log-level WARN ^
-  --name Nib --icon "%~dp0icon.ico" ^
+  --name Nib --icon "%~dp0icon.ico" --version-file "%~dp0build\version_info.txt" ^
   --add-data "%~dp0web;web" ^
   --exclude-module mockgrbl_tests --exclude-module tkinter ^
   --distpath "%~dp0." --workpath "%~dp0build" --specpath "%~dp0build" ^
