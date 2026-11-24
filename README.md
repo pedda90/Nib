@@ -3,9 +3,9 @@
 *Pen plotter control – Every line, by the pen.*
 
 Custom control software for the UUNATeK 3.0 pen plotter (GRBL/FluidNC over USB/CH340).
-Light and dark theme (follows Windows, or switch with the button at the top right).
+Runs on Windows and macOS. Light and dark theme (follows the system, or switch with the button at the top right).
 
-**Every control and setting explained: [USAGE.md](USAGE.md)**
+**Every control and setting explained: [USAGE.md](USAGE.md)** · What's new: [CHANGELOG.md](CHANGELOG.md)
 
 ![Nib in dark mode, paused at a pen change after two of three layers](docs/screenshot-dark.png)
 
@@ -19,55 +19,59 @@ Light and dark theme (follows Windows, or switch with the button at the top righ
 *Screenshots at 2560 × 1440 (WQHD), using the built-in plotter simulator.*
 
 ## Getting started
-**Requirements:** Windows 10 or 11 and [Python 3](https://www.python.org/downloads/) (tested with 3.13;
-tick “Add python.exe to PATH” during setup). The plotter connects over USB; it uses a CH340 chip,
-so if no COM port shows up, install the CH340 driver.
+Download the ready-to-run app from the **[latest release](https://github.com/pedda90/Nib/releases/latest)** –
+no Python or installation needed.
 
-1. Download the code: **Code → Download ZIP** on GitHub (and unpack it), or `git clone`.
-2. Double-click **`build_exe.bat`**. The first time it sets up a Python environment and installs
-   what Nib needs (a few minutes), then builds **`Nib.exe`** in the same folder.
-3. Start **`Nib.exe`**. Windows may warn about an unknown app because the exe isn't signed:
-   **More info → Run anyway**.
+**Windows 10/11:** download `Nib-…-windows.zip`, unpack it and put `Nib.exe` in a folder of its own.
+Double-click it. Windows may warn about an unknown app because the exe isn't signed:
+**More info → Run anyway**. Settings are saved next to the exe.
+
+**macOS 11 or later, Apple Silicon (M1 or newer):** download `Nib-…-macos.zip`, unpack it and move
+**Nib.app** to *Applications*. The first time, macOS says it can't verify the developer because the
+app isn't signed: open **System Settings → Privacy & Security** and click **Open Anyway**
+(on older macOS: right-click the app → **Open**). Settings live in `~/Library/Application Support/Nib`.
+
+**Updating:** replace `Nib.exe` or `Nib.app` with the new version – settings are kept.
+
+**Plotter connection:** USB. The plotter uses a CH340 chip: on Windows, install the CH340 driver if
+no COM port shows up; macOS supports it out of the box (the port looks like `/dev/cu.usbserial-…`).
 
 Then follow [First test with the real plotter](#first-test-with-the-real-plotter) below.
 No plotter at hand? Choose the port **SIMULATOR** to try everything out.
 
-### On macOS (experimental)
-Nib runs on macOS too, in its own window. This is new and not yet tested on a real Mac –
-feedback is very welcome in the [macOS issue](https://github.com/pedda90/Nib/issues/1).
+### Running from source
+For changing the code, or on an Intel Mac. Requires [Python 3](https://www.python.org/downloads/)
+(tested with 3.13; on Windows tick “Add python.exe to PATH” during setup).
 
-**Requirements:** macOS 11 or later and [Python 3](https://www.python.org/downloads/macos/).
-The plotter's CH340 USB chip is supported by macOS out of the box; the port shows up as
-something like `/dev/cu.usbserial-1410` (or `/dev/cu.wchusbserial…` with the vendor driver).
+1. Download the code: **Code → Download ZIP** on GitHub (and unpack it), or `git clone`.
+2. Start it – the first start sets up a Python environment and installs what Nib needs (a few minutes):
+   - **Windows:** `Start Nib.bat` (opens Nib in the browser), or `build_exe.bat` to build `Nib.exe`.
+   - **macOS:** `Start Nib.command` (opens Nib in its own window), or `build_app.command` to build
+     `Nib.app`. If macOS refuses to open the script, run it in Terminal from the Nib folder:
+     `bash "Start Nib.command"`.
 
-1. Download the code and unpack it (see above).
-2. Double-click **`Start Nib.command`**. The first start sets up Python and installs what Nib needs
-   (a few minutes), then Nib opens in its own window. If macOS refuses to open the script
-   because it comes from the internet, right-click it → **Open** → **Open**.
-3. Optional: double-click **`build_app.command`** to build a **`Nib.app`** you can move to
-   *Applications*. Its settings live in `~/Library/Application Support/Nib`.
-
-If double-clicking doesn't work, run it in Terminal from the Nib folder:
-`bash "Start Nib.command"`.
+**Version number:** `VERSION` in `server.py`; both build scripts take it from there.
 
 **Compatibility:** Nib is made for and tested with the UUNATeK 3.0 (FluidNC firmware, pen on the
 Z axis). Other GRBL/FluidNC plotters that lift the pen with a Z axis may work but are untested.
 
 ## Running Nib
-Double-click **`Nib.exe`**. Nib opens in its own window – no browser needed.
+Double-click **`Nib.exe`** (Windows) or **Nib.app** (macOS). Nib opens in its own window – no browser needed.
 **Quitting:** close the window. If a plot is running (also paused or waiting for a pen change),
 Nib asks first. Answering “Yes” aborts the plot and remembers the position so you can resume later.
-Settings (`settings.json`) and the resume point (`job_state.json`) are stored next to the exe.
+Settings (`settings.json`) and the resume point (`job_state.json`) are stored next to the exe
+(macOS: in `~/Library/Application Support/Nib`).
 
-**Rebuilding the exe** (after changing the code): double-click **`build_exe.bat`**. It takes about
-half a minute and puts a new `Nib.exe` into this folder. Requires Python and Windows 11
-(or the Edge WebView2 runtime, which Windows 11 includes).
+**Rebuilding the app** (after changing the code): double-click **`build_exe.bat`** (Windows) or
+**`build_app.command`** (macOS). It takes about a minute and puts a new `Nib.exe` / `Nib.app` into
+this folder. On Windows the window needs the Edge WebView2 runtime, which Windows 11 includes
+(on Windows 10 it is installed with Microsoft Edge).
 
 **In a browser instead:** `Start Nib.bat` serves the interface at http://127.0.0.1:8765.
 Nib exits by itself when the browser window is closed, except while plotting.
 For development, `server.py --keep-running` turns that off.
 
-**Important:** close the UUNA software first. Only one program can use the plotter's COM port at a time.
+**Important:** close the UUNA software first. Only one program can use the plotter's port at a time.
 
 ## First test with the real plotter
 1. Select the plotter's port at the top (e.g. **COM3**; Windows Device Manager shows it under

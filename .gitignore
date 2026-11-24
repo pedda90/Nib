@@ -6,21 +6,20 @@ __pycache__/
 # personal settings / runtime data
 settings.json
 job_state.json
+webview_data/
+fensterdaten/
 
 # local
 .claude/
-plotter/
 
-# diagnostics
+# diagnostics / logs
 connection_diagnostics.log
 verbindung_diagnose.log
+nib.log
+
+# build output and release archives
 build/
-Nib.exe
-Nib.exe
-nib.log
-webview_data/
-fensterdaten/
-nib.log
-Nib.app/
 dist/
+Nib.exe
+Nib.app/
 *.zip

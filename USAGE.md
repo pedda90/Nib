@@ -13,7 +13,7 @@ they overlap, like real fineliners. **Ink: opaque** shows gel or paint pens that
 plotted before, so the layer order matters. The field next to it is the **pen tip width** in mm;
 lines are drawn exactly this wide. Both only change the preview, not the plot.
 
-**Light/dark:** the button next to **STOP** at the top right cycles through *System* (follows Windows),
+**Light/dark:** the button next to **STOP** at the top right cycles through *System* (follows Windows or macOS),
 *Light* and *Dark*. **Collapsing:** sections with an arrow in their title (e.g. *Speed & pen*, *Machine*,
 *Optimization*) open and close when you click the title; their state is remembered.
 **Status bar** (bottom): machine state, X/Y/Z position, whether an origin is set and, while plotting,
