@@ -21,3 +21,5 @@ nib.log
 webview_data/
 fensterdaten/
 nib.log
+Nib.app/
+dist/

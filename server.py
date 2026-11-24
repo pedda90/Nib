@@ -29,7 +29,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, "frozen", False):
     # as Nib.exe: the interface is inside the exe, settings live next to the exe
     RES = getattr(sys, "_MEIPASS", HERE)
-    DATA = os.path.dirname(os.path.abspath(sys.executable))
+    if sys.platform == "darwin":
+        # inside Nib.app the program folder is read-only or moved by macOS: keep user files apart
+        DATA = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "Nib")
+        os.makedirs(DATA, exist_ok=True)
+    else:
+        DATA = os.path.dirname(os.path.abspath(sys.executable))
 else:
     RES = DATA = HERE
 WEB = os.path.join(RES, "web")

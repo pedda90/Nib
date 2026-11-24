@@ -1,0 +1,3 @@
+# macOS shell scripts must keep LF line endings, Windows batch files CRLF
+*.command text eol=lf
+*.bat text eol=crlf

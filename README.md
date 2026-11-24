@@ -32,6 +32,24 @@ so if no COM port shows up, install the CH340 driver.
 Then follow [First test with the real plotter](#first-test-with-the-real-plotter) below.
 No plotter at hand? Choose the port **SIMULATOR** to try everything out.
 
+### On macOS (experimental)
+Nib runs on macOS too, in its own window. This is new and not yet tested on a real Mac –
+feedback is very welcome in the [macOS issue](https://github.com/pedda90/Nib/issues/1).
+
+**Requirements:** macOS 11 or later and [Python 3](https://www.python.org/downloads/macos/).
+The plotter's CH340 USB chip is supported by macOS out of the box; the port shows up as
+something like `/dev/cu.usbserial-1410` (or `/dev/cu.wchusbserial…` with the vendor driver).
+
+1. Download the code and unpack it (see above).
+2. Double-click **`Start Nib.command`**. The first start sets up Python and installs what Nib needs
+   (a few minutes), then Nib opens in its own window. If macOS refuses to open the script
+   because it comes from the internet, right-click it → **Open** → **Open**.
+3. Optional: double-click **`build_app.command`** to build a **`Nib.app`** you can move to
+   *Applications*. Its settings live in `~/Library/Application Support/Nib`.
+
+If double-clicking doesn't work, run it in Terminal from the Nib folder:
+`bash "Start Nib.command"`.
+
 **Compatibility:** Nib is made for and tested with the UUNATeK 3.0 (FluidNC firmware, pen on the
 Z axis). Other GRBL/FluidNC plotters that lift the pen with a Z axis may work but are untested.
 
@@ -101,6 +119,8 @@ without written permission – just ask if you are interested.
 | `optimize.py` | Path optimization |
 | `gcode.py` | Placement and G-code |
 | `mockgrbl.py` | Simulated plotter |
-| `app.py` | Program window (Nib.exe) |
+| `app.py` | Program window (Nib.exe / Nib.app) |
+| `build_exe.bat`, `Start Nib.bat` | Build / start on Windows |
+| `build_app.command`, `Start Nib.command` | Build / start on macOS |
 | `web/` | User interface (fonts: IBM Plex, SIL Open Font License, see `web/fonts/`) |
 | `settings.json`, `job_state.json` | Saved settings and resume point (created automatically) |

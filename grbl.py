@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import collections
 import re
+import sys
 import threading
 import time
 
@@ -19,6 +20,10 @@ STATUS_RE = re.compile(r"<([^|>]+)\|(.*)>")
 def list_ports():
     out = []
     for p in serial.tools.list_ports.comports():
+        # macOS lists every serial device twice (/dev/tty.* and /dev/cu.*); only cu.* opens
+        # without waiting for a carrier signal. Bluetooth ports are never a plotter.
+        if sys.platform == "darwin" and (p.device.startswith("/dev/tty.") or "Bluetooth" in p.device):
+            continue
         out.append({"port": p.device, "desc": p.description})
     out.append({"port": SIM_PORT, "desc": "Simulated plotter (for testing)"})
     return out
@@ -100,7 +105,7 @@ class Machine:
         threading.Thread(target=self._poller, daemon=True).start()
         self._log("info", f"Connected to {port}" + (f" ({self.version})" if self.version else ""))
         if not self.version:
-            self._log("warn", "The plotter doesn't answer – is the right COM port selected "
+            self._log("warn", "The plotter doesn't answer – is the right port selected "
                               "and the UUNA software closed?")
         # read firmware settings (incl. max travel $130/$131)
         self.send("$$", tag=None)

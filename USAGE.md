@@ -148,5 +148,5 @@ remembered position is the start of the next layer (e.g. layer 2, path 1).
 - **Don't move the carriage by hand** while the plotter is on, or between switching off and on, without pushing it back into the corner afterwards.
 - **After a stop in mid-move or after hitting a stop:** switch off, push the carriage into the corner, switch on again.
 - **Lost steps:** at very high speed (especially travel at maximum) the heavy Y carriage can lose steps. The position is then wrong and it can hit the end despite the limits. Reduce the travel speed a little.
-- **Close the UUNA software first.** Only one program can use the plotter's COM port at a time.
+- **Close the UUNA software first.** Only one program can use the plotter's port at a time.
 - Choose **SIMULATOR** as the port to try things out without a plotter.
