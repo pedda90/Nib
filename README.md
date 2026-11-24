@@ -1,7 +1,5 @@
 # Nib
 
-*Pen plotter control – Every line, by the pen.*
-
 Custom control software for the UUNATeK 3.0 pen plotter (GRBL/FluidNC over USB/CH340).
 Runs on Windows and macOS. Light and dark theme (follows the system, or switch with the button at the top right).
 
