@@ -17,8 +17,7 @@ Runs on Windows and macOS. Light and dark theme (follows the system, or switch w
 *Screenshots at 2560 × 1440 (WQHD), using the built-in plotter simulator.*
 
 ## Getting started
-Download the ready-to-run app from the **[latest release](https://github.com/pedda90/Nib/releases/latest)** –
-no Python or installation needed.
+**Download:** the latest ready-to-run version is on the [Releases page](https://github.com/pedda90/Nib/releases/latest).
 
 **Windows 10/11:** download `Nib-…-windows.zip`, unpack it and put `Nib.exe` in a folder of its own.
 Double-click it. Windows may warn about an unknown app because the exe isn't signed:
