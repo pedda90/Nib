@@ -23,6 +23,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import numpy as np
 
 import gcode as G
+import hatch as H
 import optimize as O
 from grbl import Job, Machine, list_ports
 from svgload import load_svg
@@ -160,6 +161,37 @@ def check_limits(bbox, place, m, machine=None, wco_xy=None):
     return None
 
 
+FILL_DEFAULT = {"mode": "off", "spacing": 0.4, "angle": 45, "outline": True}
+FILL_MODES = ("off", "hatch", "cross")
+
+
+def fill_config(opts, key):
+    """Hatch settings of one layer (by its group key), checked and with defaults filled in."""
+    c = dict(FILL_DEFAULT)
+    c.update((opts.get("fill") or {}).get(str(key)) or {})
+    if c["mode"] not in FILL_MODES:
+        c["mode"] = "off"
+    try:
+        c["spacing"] = min(20.0, max(0.05, float(c["spacing"])))
+        c["angle"] = float(c["angle"]) % 180
+    except (TypeError, ValueError):
+        c["spacing"], c["angle"] = FILL_DEFAULT["spacing"], FILL_DEFAULT["angle"]
+    c["outline"] = bool(c["outline"])
+    return c
+
+
+def _comparable_opts(o):
+    """Options that change the plotted paths – for recognising a resume point.
+    (Sublayer visibility, the scale used for hatching and inactive fills don't count.)"""
+    o = {k: v for k, v in (o or {}).items() if k not in ("hidden", "fill_scale")}
+    fills = {k: v for k, v in (o.get("fill") or {}).items() if (v or {}).get("mode", "off") != "off"}
+    if fills:
+        o["fill"] = fills
+    else:
+        o.pop("fill", None)
+    return o
+
+
 def _color_name(hexcol, names):
     """Name a color layer, e.g. 'hatch Y' -> 'Y (#f5d000)'."""
     top = sorted(names.items(), key=lambda kv: -kv[1])
@@ -185,6 +217,7 @@ class App:
         self.hidden = set()       # hidden sublayers "L<i>/<name>"
         self._opt_cache = {}      # (mode, layer, options) -> [(sublayer, path)], all sublayers together
         self._all_cache = {}      # id(tagged) -> (tagged, rounded flat paths) for the JSON reply
+        self._hatch_cache = {}    # (fill index, spacing, angle, cross) -> hatch lines
         self._last_save = 0.0
 
     def _fw_received(self, fw):
@@ -217,6 +250,7 @@ class App:
             self.hidden = set()
             self._opt_cache = {}
             self._all_cache = {}
+            self._hatch_cache = {}
             xs = [x for pl in res.polylines for x, _ in pl.pts] or [0]
             ys = [y for pl in res.polylines for _, y in pl.pts] or [0]
             self._bbox = [min(xs), min(ys), max(xs), max(ys)]
@@ -240,42 +274,84 @@ class App:
             ncol = len({p.color for p in polys})
             nlay = len({p.layer for p in polys})
             mode = "color" if 2 <= ncol <= 12 else ("layer" if nlay > 1 else "color")
+        keyof = lambda layer, color: layer if mode == "layer" else (color if mode == "color" else "Alle")
+        fscale = float(opts.get("fill_scale") or 1.0) or 1.0
+        fcfg = {}                                    # group key -> hatch settings
+
+        def cfg(key):
+            if key not in fcfg:
+                fcfg[key] = fill_config(opts, key)
+            return fcfg[key]
+
+        # hatch lines of filled shapes become ordinary paths of their layer
+        extra = []                                   # Polyline-like (pts, layer, color, sub)
+        nfills = {}
+        for fi, f in enumerate(getattr(self.raw, "fills", [])):
+            key = keyof(f.layer, f.color)
+            nfills[key] = nfills.get(key, 0) + 1
+            c = cfg(key)
+            if c["mode"] == "off":
+                continue
+            # spacing is given on paper: undo the placement scale
+            hk = (fi, round(c["spacing"] / fscale, 5), c["angle"], c["mode"])
+            lines = self._hatch_cache.get(hk)
+            if lines is None:
+                lines = H.hatch_shape(f.rings, c["spacing"] / fscale, c["angle"], c["mode"] == "cross", f.rule)
+                self._hatch_cache[hk] = lines
+            extra += [(pl, f.layer, f.color, f.sub) for pl in lines]
+
+        def all_paths():
+            for p in polys:
+                if p.fill_of >= 0:
+                    c = cfg(keyof(p.layer, p.color))
+                    if c["mode"] != "off" and not c["outline"]:
+                        continue                     # edge of a hatched shape, outline off
+                yield p.pts, p.layer, p.color, getattr(p, "sub", "")
+            yield from extra
+
         groups = {}
-        order = []
-        for p in polys:
-            key = p.layer if mode == "layer" else (p.color if mode == "color" else "Alle")
+        # layer order (and so the ids L0, L1, …) comes from the file alone, so hatch
+        # settings – e.g. dropping outlines – never shift layers around
+        order = list(dict.fromkeys([keyof(p.layer, p.color) for p in polys]
+                                   + [keyof(f.layer, f.color) for f in getattr(self.raw, "fills", [])]))
+        for pts, p_layer, p_color, p_sub in all_paths():
+            key = keyof(p_layer, p_color)
             # sublayer: Illustrator sublayer; for color layers the Illustrator layer,
             # for Illustrator layers the color
-            sub = getattr(p, "sub", "") or (p.color if mode == "layer" else p.layer)
+            sub = p_sub or (p_color if mode == "layer" else p_layer)
             if key not in groups:
                 groups[key] = {"paths": [], "colors": {}, "subs": {}, "names": {}}
-                order.append(key)
+                if key not in order:
+                    order.append(key)
             gi = order.index(key)
             groups[key]["subs"][sub] = groups[key]["subs"].get(sub, 0) + 1
             # all paths (hidden ones too) go into the joint optimization
-            groups[key]["paths"].append(p.pts)
+            groups[key]["paths"].append(pts)
             groups[key].setdefault("tags", []).append(sub)
             if f"L{gi}/{sub}" in self.hidden:
                 continue
-            groups[key]["colors"][p.color] = groups[key]["colors"].get(p.color, 0) + 1
+            groups[key]["colors"][p_color] = groups[key]["colors"].get(p_color, 0) + 1
             groups[key].setdefault("names", {})
-            nm = p.layer.rstrip("0123456789 ").strip() or p.layer
+            nm = p_layer.rstrip("0123456789 ").strip() or p_layer
             groups[key]["names"][nm] = groups[key]["names"].get(nm, 0) + 1
-            groups[key].setdefault("full", set()).add(p.layer)
+            groups[key].setdefault("full", set()).add(p_layer)
 
         bbox = self._bbox
 
         layers = []
-        okey = json.dumps(opts, sort_keys=True)
+        okey = json.dumps({k: v for k, v in opts.items() if k not in ("fill", "fill_scale")}, sort_keys=True)
         cache = {}
         for i, key in enumerate(order):
-            g = groups[key]
+            g = groups.get(key)
+            if g is None:
+                continue                             # nothing left to draw (e.g. outline off, fill off)
             lid = f"L{i}"
             visible = tuple(s for s in g["subs"] if f"{lid}/{s}" not in self.hidden)
             start = (bbox[0], bbox[1])
             # optimize once with ALL sublayers together (independent of hiding);
             # hiding only filters afterwards – the order of the rest stays the same.
-            ck = (mode, key, okey)
+            c = cfg(key)
+            ck = (mode, key, okey, json.dumps(c, sort_keys=True) + (f"@{fscale:g}" if c["mode"] != "off" else ""))
             tagged = self._opt_cache.get(ck)
             if tagged is None:
                 tagged = O.optimize_tagged(g["paths"], g["tags"], opts, start=start)
@@ -299,6 +375,8 @@ class App:
                 "paths": paths, "subs": subs, **st,
                 # all paths in plot order with their sublayer, so the client can hide sublayers itself
                 "subnames": list(g["subs"]), "tagged": tagged,
+                # hatch fill: group key the settings belong to, number of filled shapes
+                "key": str(key), "fills": nfills.get(key, 0), "fill": c,
             })
         self._opt_cache = cache
         hidden_now = sorted(h for h in self.hidden if any(
@@ -368,8 +446,7 @@ class App:
         if "path_key" not in st:
             # old state without fingerprint: only with exactly the same settings
             return st if st.get("opts") == self.doc["opts"] else None
-        strip = lambda o: {k: v for k, v in (o or {}).items() if k != "hidden"}
-        if strip(st.get("opts")) != strip(self.doc["opts"]):
+        if _comparable_opts(st.get("opts")) != _comparable_opts(self.doc["opts"]):
             return None
         by_id = {l["id"]: l for l in self.doc["layers"]}
         ids = st.get("layer_ids") or []
@@ -548,6 +625,16 @@ class Handler(BaseHTTPRequestHandler):
         if show:
             more = f" – {repeats} more since the last message" if repeats else ""
             print(f"Blocked request {key[0]} {key[1]}: {why} (Origin: {origin}, Host: {host}){more}")
+        # read a (small) request body first: answering while the client is still sending
+        # makes Windows reset the connection, and the client sees an error instead of 403
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            if 0 < n <= 1 << 20:
+                self.rfile.read(n)
+            else:
+                self.close_connection = True
+        except (ValueError, OSError):
+            self.close_connection = True
         data = json.dumps({"error": "Forbidden"}).encode()
         self.send_response(403)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -801,7 +888,40 @@ class Handler(BaseHTTPRequestHandler):
             M.queue_lines(G.frame_gcode(APP.doc["bbox"], place, mset), None)
             M._log("info", "Tracing the frame (pen up)")
             return {"ok": True}
+        if path == "/api/hatch_test":
+            return hatch_test(b, mset, M)
         return {"error": f"Unknown command {path}"}
+
+
+def hatch_test(b, m, machine):
+    """Plot the hatch test strip with its top-left corner at the current pen position:
+    one square per spacing, with the current pen heights and speeds."""
+    try:
+        angle = float(b.get("angle", 45)) % 180
+    except (TypeError, ValueError):
+        angle = 45.0
+    cross = b.get("mode") == "cross"
+    wx, wy = machine.status()["wpos"][:2]
+    x, y = G.from_machine(wx, wy, m)
+    w, h = H.test_strip_size()
+    if m.get("limits_on", True):
+        ax0, ay0, ax1, ay1 = allowed_area(m, machine)
+        if x < ax0 - 0.01 or y < ay0 - 0.01 or x + w > ax1 + 0.01 or y + h > ay1 + 0.01:
+            return {"error": f"The test strip ({w:.0f} × {h:.0f} mm, drawn to the right of and below "
+                             f"the pen) doesn't fit here. Move the pen to a free spot first."}
+    err = machine.z_check(m["z_up"]) or machine.z_check(m["z_down"])
+    if err:
+        return {"error": err}
+    gb = G.GcodeBuilder(m)
+    gb.header()
+    gb.layer(0, H.test_strip(x, y, angle, cross), lambda px, py: (px, py))
+    gb.pen_up()
+    sx, sy = G.to_machine(x, y, m)
+    gb.emit(f"G1 X{G._fmt(sx)} Y{G._fmt(sy)} F{int(m['feed_travel'])}")   # back to where it started
+    machine.queue_lines([line for line, _ in gb.lines], None)
+    machine._log("info", f"Plotting the hatch test strip ({w:.0f} × {h:.0f} mm): spacings "
+                         + ", ".join(f"{s:g}" for s in H.TEST_SPACINGS) + " mm")
+    return {"ok": True, "spacings": list(H.TEST_SPACINGS)}
 
 
 def _job_busy():

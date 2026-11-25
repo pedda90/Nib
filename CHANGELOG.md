@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+- **Hatch fill:** filled shapes can be hatched or cross-hatched per layer, with adjustable spacing
+  (on paper, independent of the scale) and angle, optionally with the outline. A test strip with
+  six spacings helps to find the right one for a pen. Preview and time estimate include it.
+- Refused API requests no longer make Windows reset the connection.
+
 ## 1.2.0 – 2026-11-25
 - **Security:** the local API only answers Nib's own page. Other web sites open in the browser
   can no longer control the plotter (per-start access token, Host/Origin check, JSON-only POSTs,

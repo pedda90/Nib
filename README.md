@@ -97,6 +97,8 @@ For development, `server.py --keep-running` turns that off.
 - Layers by color or by Illustrator layer – toggle them, reorder them, automatic pause for pen changes.
 - Path optimization: sort order, join connecting lines, remove duplicates, simplify (defaults are shown).
 - Show or hide individual Illustrator layers within one pen color.
+- **Hatch fill** for filled shapes: hatch or cross-hatch per layer, spacing and angle, with a test
+  strip to find the right spacing for your pen.
 - Preview with travel moves and live progress (colours can be hidden in the preview even while plotting).
 - Realistic time estimate (acceleration of the plotter included), remaining time for the current pen and in total.
 - Pause/resume (also with the space bar), stop without losing the origin,
@@ -131,6 +133,7 @@ The fine print is in [LICENSE.md](LICENSE.md) (PolyForm Noncommercial 1.0.0).
 | `grbl.py` | Connection, streaming, plot job |
 | `svgload.py` | SVG import |
 | `optimize.py` | Path optimization |
+| `hatch.py` | Hatch fill for filled shapes, test strip |
 | `gcode.py` | Placement and G-code |
 | `mockgrbl.py` | Simulated plotter |
 | `app.py` | Program window (Nib.exe / Nib.app) |

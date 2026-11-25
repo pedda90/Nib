@@ -26,11 +26,23 @@ class Polyline:
     layer: str           # name of the top-level group / layer
     color: str           # '#rrggbb'
     sub: str = ""        # name of the sublayer (2nd level in Illustrator), otherwise empty
+    fill_of: int = -1    # index into LoadResult.fills if this is the edge of a fill-only shape
+
+
+@dataclass
+class FillShape:
+    """A filled area, for hatching: closed rings in mm plus the SVG fill rule."""
+    rings: list          # [[(x, y), ...], ...]
+    layer: str
+    color: str           # fill color '#rrggbb'
+    sub: str = ""
+    rule: str = "nonzero"
 
 
 @dataclass
 class LoadResult:
     polylines: list = field(default_factory=list)
+    fills: list = field(default_factory=list)     # FillShape
     warnings: list = field(default_factory=list)
     width_mm: float = 0.0
     height_mm: float = 0.0
@@ -44,6 +56,26 @@ def _color_of(shape) -> str:
         except Exception:
             pass
     return "#000000"
+
+
+def _visible(c) -> bool:
+    try:
+        return c is not None and c.value is not None and Color(c).alpha != 0
+    except Exception:
+        return False
+
+
+def _fill_of(shape):
+    """(fill color, has stroke) – fill color None if the shape isn't filled. SVG fills shapes
+    black by default; plotter files rarely mean that, so a default black fill only counts
+    when the shape has no stroke at all (e.g. a plain <circle>)."""
+    stroke = _visible(shape.stroke)
+    if not _visible(shape.fill):
+        return None, stroke
+    vals = getattr(shape, "values", {}) or {}
+    if stroke and str(vals.get("fill", "")).strip().lower() in ("black", ""):
+        return None, stroke
+    return Color(shape.fill).hexrgb.lower(), stroke
 
 
 def _group_label(g) -> str:
@@ -323,36 +355,43 @@ def load_svg(source, curve_step_mm: float = 0.3) -> LoadResult:
         if vals.get("display") == "none" or vals.get("visibility") == "hidden":
             return
         color = _color_of(shape)
+        # fast path for simple lines (DrawingBot/Illustrator hatching) – never filled
+        if isinstance(shape, SimpleLine) and shape.transform.is_identity():
+            res.polylines.append(Polyline(
+                [(shape.x1 * PX_TO_MM, shape.y1 * PX_TO_MM), (shape.x2 * PX_TO_MM, shape.y2 * PX_TO_MM)],
+                layer, color, sub))
+            return
+        pls = []
         if vals.get("data-nibd") is not None and big:
             # long path data read directly; the three moves give the final transform
             try:
                 q = [seg.end for seg in shape if isinstance(seg, Move)]
                 (ex, ey), (ax, ay), (cx, cy) = (q[0].x, q[0].y), (q[1].x, q[1].y), (q[2].x, q[2].y)
                 m = (ax - ex, ay - ey, cx - ex, cy - ey, ex, ey)
-                for pl in _fast_d(big[int(vals["data-nibd"])], m):
-                    res.polylines.append(Polyline(pl, layer, color, sub))
+                pls = _fast_d(big[int(vals["data-nibd"])], m)
             except Exception:
-                pass
-            return
-        # fast path for simple lines (DrawingBot/Illustrator hatching)
-        if isinstance(shape, SimpleLine) and shape.transform.is_identity():
-            res.polylines.append(Polyline(
-                [(shape.x1 * PX_TO_MM, shape.y1 * PX_TO_MM), (shape.x2 * PX_TO_MM, shape.y2 * PX_TO_MM)],
-                layer, color, sub))
-            return
-        if isinstance(shape, (Polyline_, Polygon)) and shape.transform.is_identity():
+                pls = []
+        elif isinstance(shape, (Polyline_, Polygon)) and shape.transform.is_identity():
             pts = [(p.x * PX_TO_MM, p.y * PX_TO_MM) for p in shape.points]
             if isinstance(shape, Polygon) and pts:
                 pts.append(pts[0])
-            if len(pts) > 1:
-                res.polylines.append(Polyline(pts, layer, color, sub))
-            return
-        try:
-            p = abs(Path(shape))
-        except Exception:
-            return
-        for pl in _path_to_polylines(p, curve_step_mm):
-            res.polylines.append(Polyline(pl, layer, color, sub))
+            pls = [pts] if len(pts) > 1 else []
+        else:
+            try:
+                pls = _path_to_polylines(abs(Path(shape)), curve_step_mm)
+            except Exception:
+                return
+        fill, stroke = _fill_of(shape)
+        fi = -1
+        if fill is not None:
+            rings = [pl for pl in pls if len(pl) >= 3]
+            if rings:
+                rule = "evenodd" if str(vals.get("fill-rule", "")).strip() == "evenodd" else "nonzero"
+                res.fills.append(FillShape(rings, layer, fill, sub, rule))
+                if not stroke:
+                    fi = len(res.fills) - 1        # its outline is only the edge of the fill
+        for pl in pls:
+            res.polylines.append(Polyline(pl, layer, color, sub, fi))
 
     # Illustrator wraps everything in 1-2 container groups -> descend to the actual layer level
     container = svg

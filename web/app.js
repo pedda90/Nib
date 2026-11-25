@@ -808,7 +808,7 @@ function renderDocInfo() {
   $("#docInfo").innerHTML = `<b>${esc(doc.name)}</b> · ${info}`;
   $("#docInfo").title = `${doc.name}\n${info}`;
 }
-function placeChanged() { updatePlaceInputs(); saveSettings({ place: S.place }); renderLayers(); scheduleDraw(); }
+function placeChanged() { updatePlaceInputs(); saveSettings({ place: S.place }); renderLayers(); scheduleDraw(); fillScaleChanged(); }
 $("#plX").onchange = () => { const [w] = doc ? placedSize() : [0]; S.place.x = (+$("#plX").value || 0) - anchor[0] * w; placeChanged(); };
 $("#plY").onchange = () => { const [, h] = doc ? placedSize() : [0, 0]; S.place.y = (+$("#plY").value || 0) - anchor[1] * h; placeChanged(); };
 $("#plS").onchange = () => { const v = +$("#plS").value; if (v > 0) keepAnchor(() => { S.place.scale = v / 100; }); placeChanged(); };
@@ -894,7 +894,7 @@ $("#btnOptDefaults").onclick = () => {
 $("#btnProcess").onclick = async () => {
   if (!doc) return;
   $("#busy").hidden = false; $("#busy").textContent = "Recalculating…";
-  const j = await api("/api/process", S.optimize);
+  const j = await api("/api/process", procOpts());
   $("#busy").hidden = true;
   $("#btnProcess").classList.remove("primary");
   if (j.doc) setDoc(j, false);
@@ -923,6 +923,7 @@ function setDoc(j, resetPlacement) {
   $("#warnings").title = doc.warnings.join("\n");
   $("#warnings").onclick = () => doc.warnings.forEach((w) => logLocal("warn", w));
   updatePlaceInputs(); renderLayers(); renderResume(); scheduleDraw();
+  fillScaleChanged();
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -967,6 +968,7 @@ function renderLayers() {
     dn.onclick = () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; renderLayers(); scheduleDraw(); };
     box.appendChild(row);
     // show/hide Illustrator layers within the pen color
+    if (l.fills) box.appendChild(fillRow(l));
     (l.subs || []).forEach((sb) => {
       const sr = document.createElement("label");
       sr.className = "sublayer" + (o.on ? "" : " off");
@@ -982,6 +984,84 @@ function renderLayers() {
   sel.innerHTML = order.filter((o) => o.on).map((o, i) => `<option value="${i}">${i + 1}. ${esc(doc.layers.find((x) => x.id === o.id).name)}</option>`).join("");
   if (prev && +prev < sel.options.length) sel.value = prev;
   renderStartInfo();
+}
+
+// --------------------------------------------------------------- hatch fill
+/* Filled shapes can be hatched per layer. The settings live in S.optimize.fill under the
+   layer's group key (its colour or layer name); the server turns them into ordinary paths,
+   so preview, time estimate and plot include the hatching. Spacing is set on paper, so the
+   server also gets the placement scale (fill_scale). */
+const fillOpen = new Set();          // group keys whose fill settings are expanded
+const FILL_DEF = { mode: "off", spacing: 0.4, angle: 45, outline: true };
+const TEST_SPACINGS = [0.2, 0.3, 0.4, 0.5, 0.6, 0.8];
+const procOpts = () => ({ ...S.optimize, fill_scale: S.place.scale });
+const fillOf = (l) => ({ ...FILL_DEF, ...(l.fill || {}), ...((S.optimize.fill || {})[l.key] || {}) });
+const anyFill = () => doc && doc.layers.some((l) => l.fills && fillOf(l).mode !== "off");
+
+let fillTimer = null, fillSeq = 0;
+function refill(delay = 250) {
+  clearTimeout(fillTimer);
+  fillTimer = setTimeout(async () => {
+    if (!doc) return;
+    const seq = ++fillSeq;
+    $("#busy").hidden = false; $("#busy").textContent = "Hatching…";
+    const j = await api("/api/process", procOpts());
+    if (seq !== fillSeq) return;               // a newer change is on its way
+    $("#busy").hidden = true;
+    if (j.doc) setDoc(j, false);
+  }, delay);
+}
+function fillScaleChanged() {
+  if (doc && anyFill() && Math.abs((doc.opts.fill_scale || 1) - S.place.scale) > 1e-6) refill(600);
+}
+function setFill(l, patch) {
+  S.optimize.fill = S.optimize.fill || {};
+  S.optimize.fill[l.key] = { ...fillOf(l), ...patch };
+  refill();
+}
+
+function fillRow(l) {
+  const f = fillOf(l), open = fillOpen.has(l.key), locked = jobActive();
+  const sum = f.mode === "off" ? "off" : `${f.mode} ${f.spacing.toFixed(2)} mm · ${Math.round(f.angle)}°`;
+  const box = document.createElement("div");
+  box.className = "fill" + (open ? " open" : "");
+  box.innerHTML = `<button class="filltog" title="Hatch the filled shapes of this layer">
+      <svg class="ic"><use href="#i-hatch"/></svg><span class="fs">Fill: <b>${sum}</b></span>
+      <span class="meta">${fmtNum(l.fills)} filled shape${l.fills > 1 ? "s" : ""}</span>
+      <svg class="ic chev"><use href="#i-chev"/></svg></button>
+    ${open ? `<div class="fillbox">
+      <div class="seg fmode">${["off", "hatch", "cross"].map((m) => `<button data-m="${m}" class="${f.mode === m ? "on" : ""}">${m[0].toUpperCase() + m.slice(1)}</button>`).join("")}</div>
+      <label class="frow"><span>Spacing</span><input type="range" class="fsp" min="0.1" max="2" step="0.05" value="${f.spacing}">
+        <input type="number" class="fspn" min="0.05" max="20" step="0.05" value="${f.spacing.toFixed(2)}"><i>mm</i></label>
+      <label class="frow"><span>Angle</span><input type="range" class="fan" min="0" max="175" step="5" value="${f.angle}">
+        <input type="number" class="fann" min="0" max="179" step="5" value="${Math.round(f.angle)}"><i>°</i></label>
+      <label class="chk"><input type="checkbox" class="fol" ${f.outline ? "checked" : ""}> Trace the outline too</label>
+      <div class="ftest"><span>Test strip</span>
+        <button class="quiet fplot" title="Plots six small squares with different spacings to the right of and below the pen, using the current pen heights and speeds"><svg class="ic"><use href="#i-hatch"/></svg>Plot test</button></div>
+      <div class="seg fpick">${TEST_SPACINGS.map((v) => `<button data-v="${v}" class="${Math.abs(v - f.spacing) < 1e-6 ? "on" : ""}" title="Use the spacing of this test square">${v.toFixed(1)}</button>`).join("")}</div>
+      <p class="hint">Plot the test strip on spare paper, then pick the square that looks right. Spacing is measured on paper, whatever the scale.</p>
+    </div>` : ""}`;
+  box.querySelector(".filltog").onclick = () => { if (open) fillOpen.delete(l.key); else fillOpen.add(l.key); renderLayers(); };
+  if (!open) return box;
+  box.querySelectorAll(".fillbox input, .fillbox button").forEach((el) => { el.disabled = locked; });
+  const on = (m) => (m === "off" ? "hatch" : m);         // changing a value switches hatching on
+  box.querySelectorAll(".fmode button").forEach((b) => (b.onclick = () => setFill(l, { mode: b.dataset.m })));
+  const sp = box.querySelector(".fsp"), spn = box.querySelector(".fspn"), an = box.querySelector(".fan"), ann = box.querySelector(".fann");
+  const num = (v, lo, hi) => { v = parseFloat(v); return isNaN(v) ? null : Math.min(hi, Math.max(lo, v)); };
+  sp.oninput = () => { spn.value = (+sp.value).toFixed(2); };
+  sp.onchange = () => setFill(l, { spacing: +sp.value, mode: on(f.mode) });
+  spn.onchange = () => { const v = num(spn.value, 0.05, 20); if (v !== null) setFill(l, { spacing: v, mode: on(f.mode) }); };
+  an.oninput = () => { ann.value = an.value; };
+  an.onchange = () => setFill(l, { angle: +an.value });
+  ann.onchange = () => { const v = num(ann.value, 0, 179); if (v !== null) setFill(l, { angle: v }); };
+  box.querySelector(".fol").onchange = (e) => setFill(l, { outline: e.target.checked });
+  box.querySelectorAll(".fpick button").forEach((b) => (b.onclick = () => setFill(l, { spacing: +b.dataset.v, mode: on(f.mode) })));
+  box.querySelector(".fplot").onclick = async () => {
+    if (!connected()) { logLocal("err", "Connect the plotter first."); return; }
+    if (!confirm("Plot the hatch test strip?\n\nIt is drawn to the right of and below the current pen position (about 75 × 15 mm), with the current pen heights and speeds. Move the pen to a free spot on spare paper first.")) return;
+    api("/api/hatch_test", { angle: f.angle, mode: f.mode });
+  };
+  return box;
 }
 
 /* Visible paths of every layer = all paths (in plot order) minus hidden sublayers.
@@ -1014,10 +1094,10 @@ function toggleSub(layerId, name, hide) {
   derivePaths(); renderLayers(); renderStartInfo(); scheduleDraw();
   // tell the server (it lays out the job); only the newest answer counts
   const seq = ++hideSeq;
-  hideSync = api("/api/process", { ...S.optimize, hidden: doc.hidden, light: true }).then((j) => {
+  hideSync = api("/api/process", { ...procOpts(), hidden: doc.hidden, light: true }).then((j) => {
     if (seq !== hideSeq || !j.doc) return;
     const byId = Object.fromEntries(doc.layers.map((l) => [l.id, l]));
-    if (j.doc.layers.some((l) => !byId[l.id])) { api("/api/process", S.optimize).then((f) => f.doc && setDoc(f, false)); return; }
+    if (j.doc.layers.some((l) => !byId[l.id])) { api("/api/process", procOpts()).then((f) => f.doc && setDoc(f, false)); return; }
     for (const l of j.doc.layers) { const { subs, ...stats } = l; Object.assign(byId[l.id], stats); }
     doc.hidden = j.doc.hidden; doc.opts = j.doc.opts; resumeInfo = j.resume;
     derivePaths(); renderLayers(); renderResume();

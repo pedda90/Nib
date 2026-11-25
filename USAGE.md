@@ -106,6 +106,35 @@ Each field shows its default below it; changed values are highlighted.
 
 ---
 
+## Hatch fill
+
+Filled shapes (e.g. a red area in Illustrator) are normally plotted as their outline only.
+Layers that contain filled shapes show a **Fill** line under them in the layer list (“3 filled
+shapes”); click it to open the settings:
+
+| Setting | Meaning |
+|---|---|
+| **Off / Hatch / Cross** | *Hatch:* parallel lines. *Cross:* a second set at 90° – darker. |
+| **Spacing** | Distance between the lines, measured **on paper** – it stays the same when you scale the design. |
+| **Angle** | Direction of the lines (0° = horizontal). |
+| **Trace the outline too** | Also draws the edge of the shape, for a clean border. Shapes that have a stroke of their own keep it either way. |
+
+The hatching appears in the preview right away, and the time estimate includes it. Neighbouring
+lines are joined into zigzags where that stays inside the shape, which saves most pen lifts. Holes
+(like in an “O”) stay empty, following the file's fill rule.
+
+**Finding the right spacing:** the real line width depends on the pen, the pressure and the paper,
+so there's a test strip instead of a pen-width setting. Put spare paper under the pen, jog to a
+free spot and click **Plot test**: six 10 mm squares with 0.2 to 0.8 mm spacing are drawn to the
+right of and below the pen, with the current pen heights and speeds. Then click the number of the
+square that looks right. Spacing a bit below the line width gives a solid area; larger spacing
+gives visible lines or lighter tones.
+
+The settings are stored per layer (pen colour or layer name), so the next file with the same
+colour starts with them.
+
+---
+
 ## Plot
 
 1. Load an SVG (**Open SVG**, or drop the file on the preview). The layers (colors) appear on the right

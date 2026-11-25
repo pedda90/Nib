@@ -258,6 +258,28 @@ label.toggle { margin: 0; color: var(--muted); font-size: 12.5px; }
 .sublayer.off { opacity: .45; }
 .sublayer .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sublayer .meta { color: var(--faint); font-size: 11px; font-family: var(--mono); }
+/* hatch fill of a layer */
+.fill { margin: 0 0 2px 28px; }
+.filltog { display: grid; grid-template-columns: 16px 1fr auto 14px; gap: 6px; align-items: center; width: 100%; height: 26px;
+  padding: 0 6px; background: transparent; color: var(--muted); font-size: 12px; text-align: left; }
+.filltog .ic { width: 14px; height: 14px; }
+.filltog .fs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filltog b { color: var(--text); font-weight: 500; }
+.filltog .meta { color: var(--faint); font-size: 11px; font-family: var(--mono); }
+.filltog .chev { transform: rotate(-90deg); transition: transform .15s; }
+.fill.open .filltog .chev { transform: none; }
+.fillbox { background: var(--field); border-radius: var(--radius); padding: 2px 8px 8px; margin-top: 2px; font-size: 12px; }
+.fillbox .seg { margin-top: 6px; }
+.fillbox .seg button { height: 26px; }
+.fillbox .fmode button { font-family: inherit; }
+.fillbox .frow { display: grid; grid-template-columns: 52px minmax(0, 1fr) 56px 14px; gap: 6px; align-items: center; margin: 6px 0 0; color: var(--muted); }
+.fillbox .frow input[type=range] { width: 100%; min-width: 0; }
+.fillbox .frow input[type=number] { width: 100%; background: var(--panel); }
+.fillbox .frow i { font-style: normal; color: var(--faint); }
+.fillbox .chk { margin: 8px 0 0; }
+.fillbox .ftest { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; color: var(--muted); }
+.fillbox .ftest button { height: 26px; font-size: 12px; }
+.fillbox .hint { margin-top: 6px; }
 
 /* ---------- Plot */
 .progress { height: 6px; background: var(--field); border-radius: 99px; overflow: hidden; margin: 2px 0 8px; }
