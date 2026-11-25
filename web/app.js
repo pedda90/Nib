@@ -56,6 +56,47 @@ function fmtTime(sec) {
 const jobActive = () => job && ["running", "paused", "pen_change"].includes(job.state);
 const connected = () => st && st.connected;
 
+/* Number fields accept "1.5" as well as "1,5". Browsers' own number fields take only the decimal
+   separator of the system language, so they become text fields with a decimal keyboard; a comma
+   turns into a dot while typing, so every parseFloat(el.value) keeps working. Arrow up/down step
+   by the field's step (within min/max) like in a number field. */
+function decimalize(root) {
+  const els = root.matches && root.matches("input[type=number]") ? [root] : root.querySelectorAll("input[type=number]");
+  els.forEach((el) => {
+    el.type = "text"; el.inputMode = "decimal"; el.dataset.num = "";
+    el.autocomplete = "off"; el.spellcheck = false;
+  });
+}
+document.addEventListener("input", (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement) || !("num" in el.dataset)) return;
+  const clean = el.value.replace(/,/g, ".").replace(/[^0-9.\-]/g, "");
+  if (clean !== el.value) {
+    const pos = Math.max(0, (el.selectionStart || 0) - (el.value.length - clean.length));
+    el.value = clean;
+    el.setSelectionRange(pos, pos);
+  }
+}, true);
+document.addEventListener("keydown", (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement) || !("num" in el.dataset) || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+  e.preventDefault();
+  const step = parseFloat(el.getAttribute("step")) || 1;
+  const dec = Math.max((String(step).split(".")[1] || "").length, (el.value.split(".")[1] || "").length);
+  let v = parseFloat(el.value);
+  if (isNaN(v)) v = 0;
+  v += e.key === "ArrowUp" ? step : -step;
+  const lo = parseFloat(el.getAttribute("min")), hi = parseFloat(el.getAttribute("max"));
+  if (!isNaN(lo)) v = Math.max(lo, v);
+  if (!isNaN(hi)) v = Math.min(hi, v);
+  el.value = String(+v.toFixed(Math.min(dec, 6)));
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}, true);
+decimalize(document);
+new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach((n) => { if (n.nodeType === 1) decimalize(n); })))
+  .observe(document.body, { childList: true, subtree: true });
+
 let saveTimer = null;
 function saveSettings(partial) {
   clearTimeout(saveTimer);

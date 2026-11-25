@@ -10,6 +10,7 @@
   length per pen and in total, number of lines, time per pen and from start to end.
 - **Notifications:** a system notification (Windows, macOS) and a short sound when the plot ends
   or the next pen is due. Can be switched off under *Layers*.
+- Number fields accept a decimal comma as well as a point (1,5 or 1.5), whatever the system language.
 - Refused API requests no longer make Windows reset the connection.
 
 ## 1.2.0 – 2026-11-25
