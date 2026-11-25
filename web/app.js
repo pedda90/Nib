@@ -240,6 +240,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { re
     sec.classList.toggle("closed", closed);
     sec.querySelector("h2").onclick = () => {
       F[sec.id] = sec.classList.toggle("closed");
+      scheduleDraw(); dropHint();
       try { localStorage.setItem("folds", JSON.stringify(F)); } catch (e) { /* ignore */ }
     };
   });
@@ -556,6 +557,9 @@ function draw() {
     ctx.strokeRect(ax, ay, (x1 - x0) * view.s, (y1 - y0) * view.s); ctx.setLineDash([]); ctx.globalAlpha = 1;
   }
 
+  // hatch test strip, live, where it would be plotted (while the "Hatch test" section is open)
+  if (htPrev && !$("#secHatch").classList.contains("closed")) drawHatchTest();
+
   // origin: corner mark at the sheet corner
   ctx.strokeStyle = TC.accent; ctx.lineWidth = 2; ctx.lineCap = "square"; ctx.beginPath();
   ctx.moveTo(px, py + 16); ctx.lineTo(px, py); ctx.lineTo(px + 16, py); ctx.stroke(); ctx.lineCap = "round";
@@ -841,10 +845,10 @@ $("#btnOpen").onclick = () => $("#file").click();
 $("#file").onchange = () => { if ($("#file").files[0]) uploadFile($("#file").files[0]); $("#file").value = ""; };
 const wrap = $("#canvasWrap");
 window.addEventListener("dragover", (e) => { e.preventDefault(); $("#drop").classList.remove("hidden"); $("#drop").classList.add("active"); });
-window.addEventListener("dragleave", (e) => { if (e.relatedTarget === null) { $("#drop").classList.remove("active"); if (doc) $("#drop").classList.add("hidden"); } });
+window.addEventListener("dragleave", (e) => { if (e.relatedTarget === null) { $("#drop").classList.remove("active"); dropHint(); } });
 window.addEventListener("drop", (e) => {
   e.preventDefault(); $("#drop").classList.remove("active");
-  if (doc) $("#drop").classList.add("hidden");
+  dropHint();
   const f = e.dataTransfer.files[0];
   if (f) uploadFile(f);
 });
@@ -1036,7 +1040,7 @@ function fillRow(l) {
       <label class="frow"><span>Angle</span><input type="range" class="fan" min="0" max="175" step="5" value="${f.angle}">
         <input type="number" class="fann" min="0" max="179" step="5" value="${Math.round(f.angle)}"><i>°</i></label>
       <label class="chk"><input type="checkbox" class="fol" ${f.outline ? "checked" : ""}> Trace the outline too</label>
-      <label class="chk" title="On: neighbouring lines are joined into zigzags (far fewer pen lifts, faster). Off: every line is drawn on its own with the pen lifted in between – cleaner line ends, slower."><input type="checkbox" class="fjo" ${f.join ? "checked" : ""}> Connect lines (zigzag)</label>
+      <label class="chk" title="On: neighbouring lines are joined into zigzags (far fewer pen lifts, faster). Off: every line is drawn on its own with the pen lifted in between – cleaner line ends, slower."><input type="checkbox" class="fjo" ${f.join ? "checked" : ""}> Connect lines</label>
       <div class="ftest"><span>Test strip</span>
         <button class="quiet fplot" title="Plots six small squares with different spacings to the right of and below the pen, using the current pen heights and speeds"><svg class="ic"><use href="#i-hatch"/></svg>Plot test</button></div>
       <div class="seg fpick">${TEST_SPACINGS.map((v) => `<button data-v="${v}" class="${Math.abs(v - f.spacing) < 1e-6 ? "on" : ""}" title="Use the spacing of this test square">${v.toFixed(1)}</button>`).join("")}</div>
@@ -1078,16 +1082,56 @@ function plotHatchTest(opts) {
     $$("#htMode button").forEach((b) => b.classList.toggle("on", b.dataset.m === ht.mode));
     $("#htAngle").value = ht.angle; $("#htJoin").checked = ht.join;
   };
-  $$("#htMode button").forEach((b) => (b.onclick = () => { ht.mode = b.dataset.m; save(); show(); }));
+  const fetchPrev = () => {
+    const q = `angle=${ht.angle}&mode=${ht.mode}&join=${ht.join}`;
+    api(`/api/hatch_test_preview?${q}`).then((j) => { if (j && j.paths) { htPrev = j; scheduleDraw(); } });
+  };
+  $$("#htMode button").forEach((b) => (b.onclick = () => { ht.mode = b.dataset.m; save(); show(); fetchPrev(); }));
   $("#htAngle").onchange = () => {
     const v = parseFloat($("#htAngle").value);
     if (!isNaN(v)) ht.angle = Math.min(179, Math.max(0, v));
-    save(); show();
+    save(); show(); fetchPrev();
   };
-  $("#htJoin").onchange = () => { ht.join = $("#htJoin").checked; save(); };
+  $("#htAngle").oninput = () => {                 // live while typing or using the arrows
+    const v = parseFloat($("#htAngle").value);
+    if (!isNaN(v) && v >= 0 && v <= 179) { ht.angle = v; save(); fetchPrev(); }
+  };
+  $("#htJoin").onchange = () => { ht.join = $("#htJoin").checked; save(); fetchPrev(); };
   $("#btnHatchTest").onclick = () => plotHatchTest({ ...ht });
-  show();
+  show(); fetchPrev(); setTimeout(dropHint);
 })();
+
+/* The test strip drawn on the sheet: top-left corner at the pen (sheet origin when not
+   connected), in the preview's pen width, with a frame that turns red if it doesn't fit. */
+let htPrev = null;
+// "Drop an SVG here" only while there's nothing else on the sheet (no file, no test strip preview)
+function dropHint() {
+  $("#drop").classList.toggle("hidden", !!doc || !$("#secHatch").classList.contains("closed"));
+}                     // {size: [w, h], paths: [[x0, y0, x1, y1, …], …]} relative to the corner
+function drawHatchTest() {
+  const [ox, oy] = connected() ? machineToPaper(st.wpos[0], st.wpos[1]) : [0, 0];
+  const [w, h] = htPrev.size;
+  const [x0, y0, x1, y1] = area();
+  const fits = !S.machine.limits_on || (ox >= x0 - 0.01 && oy >= y0 - 0.01 && ox + w <= x1 + 0.01 && oy + h <= y1 + 0.01);
+  ctx.save();
+  ctx.strokeStyle = "#2a2622"; ctx.globalAlpha = fits ? 0.85 : 0.35;
+  ctx.lineWidth = Math.max(0.6, inkView.penW * view.s); ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.beginPath();
+  for (const p of htPrev.paths) {
+    for (let i = 0; i < p.length; i += 2) {
+      const [sx, sy] = toScreen(ox + p[i], oy + p[i + 1]);
+      if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+    }
+  }
+  ctx.stroke();
+  const [bx, by] = toScreen(ox - 2, oy - 2);
+  ctx.globalAlpha = 1; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+  ctx.strokeStyle = fits ? TC.accent : TC.bad;
+  ctx.strokeRect(Math.round(bx) + .5, Math.round(by) + .5, (w + 4) * view.s, (h + 4) * view.s); ctx.setLineDash([]);
+  ctx.fillStyle = fits ? TC.accent : TC.bad; ctx.font = "500 12px 'Plex Sans', sans-serif";
+  ctx.fillText(fits ? "Hatch test strip – drawn here, at the pen" : "Hatch test strip doesn't fit here – move the pen", bx, by - 7);
+  ctx.restore();
+}
 
 /* Visible paths of every layer = all paths (in plot order) minus hidden sublayers.
    The server sends each layer's paths once with their sublayer, so showing/hiding a

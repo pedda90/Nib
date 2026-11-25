@@ -118,7 +118,7 @@ shapes”); click it to open the settings:
 | **Spacing** | Distance between the lines, measured **on paper** – it stays the same when you scale the design. |
 | **Angle** | Direction of the lines (0° = horizontal). |
 | **Trace the outline too** | Also draws the edge of the shape, for a clean border. Shapes that have a stroke of their own keep it either way. |
-| **Connect lines (zigzag)** | On: neighbouring lines are joined into zigzags where that stays inside the shape – far fewer pen lifts, much faster. Off: every line is drawn on its own with the pen lifted in between – no connecting strokes along the edge, but slower. |
+| **Connect lines** | On: neighbouring lines are joined into zigzags where that stays inside the shape – far fewer pen lifts, much faster. Off: every line is drawn on its own with the pen lifted in between – no connecting strokes along the edge, but slower. |
 
 The hatching appears in the preview right away, and the time estimate includes it. Holes
 (like in an “O”) stay empty, following the file's fill rule. The test strip uses the layer's
@@ -131,8 +131,8 @@ right of and below the pen, with the current pen heights and speeds. Then click 
 square that looks right. Spacing a bit below the line width gives a solid area; larger spacing
 gives visible lines or lighter tones.
 The same test strip is also in the **Hatch test** section on the left (below *Speed & pen*), so you can
-try a pen before loading any file: choose Hatch or Cross, the angle and “Connect lines”, then
-**Plot test strip**, and enter the spacing you like later in a layer's Fill settings.
+try a pen before loading any file: choose Hatch or Cross, the angle and “Connect lines” – the strip
+is shown live on the sheet where it will be drawn (at the pen) – then **Plot test strip**, and enter the spacing you like later in a layer's Fill settings.
 
 The settings are stored per layer (pen colour or layer name), so the next file with the same
 colour starts with them.

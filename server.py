@@ -692,6 +692,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(DEFAULTS)
             if path == "/api/doc":
                 return self._json(APP.doc_json())
+            if path == "/api/hatch_test_preview":
+                q = {k: v[0] for k, v in parse_qs(url.query).items()}
+                angle, cross, join = hatch_test_options(q)
+                paths = H.test_strip(0, 0, angle, cross, join=join)
+                return self._json({"size": list(H.test_strip_size()),
+                                   "paths": [[round(c, 3) for pt in p for c in pt] for p in paths]})
             return self._static(path)
         except Exception as e:
             traceback.print_exc()
@@ -895,15 +901,20 @@ class Handler(BaseHTTPRequestHandler):
         return {"error": f"Unknown command {path}"}
 
 
-def hatch_test(b, m, machine):
-    """Plot the hatch test strip with its top-left corner at the current pen position:
-    one square per spacing, with the current pen heights and speeds."""
+def hatch_test_options(b):
+    """(angle, cross, join) of a hatch test request (JSON body or query string)."""
     try:
         angle = float(b.get("angle", 45)) % 180
     except (TypeError, ValueError):
         angle = 45.0
-    cross = b.get("mode") == "cross"
-    join = b.get("join", True) is not False
+    join = b.get("join", True)
+    return angle, b.get("mode") == "cross", join not in (False, "false", "0")
+
+
+def hatch_test(b, m, machine):
+    """Plot the hatch test strip with its top-left corner at the current pen position:
+    one square per spacing, with the current pen heights and speeds."""
+    angle, cross, join = hatch_test_options(b)
     wx, wy = machine.status()["wpos"][:2]
     x, y = G.from_machine(wx, wy, m)
     w, h = H.test_strip_size()

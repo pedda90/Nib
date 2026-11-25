@@ -86,6 +86,16 @@ def test_other_local_port_blocked(srv):
     assert st == 403
 
 
+def test_hatch_test_preview(srv):
+    st, body, _ = req(srv, "GET", "/api/hatch_test_preview?angle=30&mode=cross&join=false",
+                      headers={"X-Nib-Token": S.TOKEN})
+    assert st == 200
+    j = json.loads(body)
+    assert j["size"][0] > 0 and len(j["paths"]) > 100      # single lines, not zigzags
+    st, _, _ = req(srv, "GET", "/api/hatch_test_preview")    # no token
+    assert st == 403
+
+
 def test_wrong_token_blocked(srv):
     st, _, _ = req(srv, "GET", "/api/settings", headers={"X-Nib-Token": "nope"})
     assert st == 403
