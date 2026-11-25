@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 – 2026-11-25
 - **Hatch fill:** filled shapes can be hatched or cross-hatched per layer, with adjustable spacing
   (on paper, independent of the scale) and angle, optionally with the outline. A test strip with
   six spacings helps to find the right one for a pen; it loads like a drawing (also without a
