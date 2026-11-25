@@ -6,17 +6,19 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import hmac
 import io
 import json
 import mimetypes
 import os
+import secrets
 import sys
 import threading
 import time
 import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import numpy as np
 
@@ -43,6 +45,13 @@ WEB = os.path.join(RES, "web")
 SETTINGS_FILE = os.path.join(DATA, "settings.json")
 JOBSTATE_FILE = os.path.join(DATA, "job_state.json")
 PORT = 8765
+
+# Access token for the API. Any web page open in the user's browser can send requests to
+# 127.0.0.1, so every /api/ call must carry this token. It is created fresh at every start
+# and only handed out inside index.html, which other sites can't read (same-origin policy;
+# DNS rebinding is stopped by the Host check in Handler._allowed_host).
+TOKEN = secrets.token_urlsafe(32)
+TOKEN_PLACEHOLDER = b"__NIB_TOKEN__"
 
 DEFAULTS = {
     "connection": {"port": "COM3", "baud": 115200},
@@ -495,6 +504,53 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def end_headers(self):
+        # no framing by other sites (clickjacking), no MIME sniffing
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        super().end_headers()
+
+    # ------------------------------------------------------------ access check
+    def _origins(self):
+        port = self.server.server_address[1]
+        return {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+
+    def _allowed_host(self):
+        """Host must be our own address. A different name means DNS rebinding:
+        a foreign site pointing its own domain at 127.0.0.1 to read Nib's pages."""
+        host = (self.headers.get("Host") or "").lower()
+        return f"http://{host}" in self._origins()
+
+    def _allowed_api(self, query):
+        """API calls need the token (header, or ?token= for navigator.sendBeacon) and,
+        if the browser names an origin, it must be Nib's own page."""
+        origin = self.headers.get("Origin")
+        if origin is not None and origin not in self._origins():
+            return False
+        sent = self.headers.get("X-Nib-Token") or (parse_qs(query).get("token") or [""])[0]
+        return hmac.compare_digest(sent.encode(), TOKEN.encode())
+
+    def _deny(self, why):
+        print(f"Blocked request {self.command} {urlparse(self.path).path}: {why} "
+              f"(Origin: {self.headers.get('Origin')}, Host: {self.headers.get('Host')})")
+        data = json.dumps({"error": "Forbidden"}).encode()
+        self.send_response(403)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _check(self, url):
+        """True if the request may proceed; otherwise a 403 has been sent."""
+        if not self._allowed_host():
+            self._deny("wrong Host")
+            return False
+        if url.path.startswith("/api/") and not self._allowed_api(url.query):
+            self._deny("missing/invalid token or foreign Origin")
+            return False
+        return True
+
     def _json(self, obj, code=200):
         data = json.dumps(obj, ensure_ascii=False).encode()
         self.send_response(code)
@@ -509,12 +565,17 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(n) if n else b""
 
     def do_GET(self):
-        path = urlparse(self.path).path
+        url = urlparse(self.path)
+        if not self._check(url):
+            return
+        path = url.path
         try:
             if path == "/api/status":
                 LIFE["last_poll"], LIFE["seen"] = time.time(), True
-                q = urlparse(self.path).query
-                since = int(q.split("log=")[1]) if "log=" in q else 0
+                try:
+                    since = int((parse_qs(url.query).get("log") or ["0"])[0])
+                except ValueError:
+                    since = 0
                 return self._json({"machine": APP.machine.status(), "job": APP.job_info(),
                                    "area": allowed_area(APP.settings["machine"], APP.machine),
                                    "mset": APP.settings["machine"],
@@ -542,6 +603,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         with open(fp, "rb") as f:
             data = f.read()
+        if path == "/index.html":
+            data = data.replace(TOKEN_PLACEHOLDER, TOKEN.encode())
         self.send_response(200)
         ctype = mimetypes.guess_type(fp)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype.endswith("javascript"):
@@ -553,11 +616,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
-        path = urlparse(self.path).path
+        url = urlparse(self.path)
+        if not self._check(url):
+            return
+        path = url.path
         try:
             if path == "/api/upload":
-                name = unquote(self.headers.get("X-Filename", "datei.svg"))
+                name = unquote(self.headers.get("X-Filename", "file.svg"))
                 return self._json(APP.upload(name, self._body()))
+            # JSON only: browsers can't send that cross-site without a CORS preflight,
+            # which this server never approves
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if ctype != "application/json":
+                return self._json({"error": "Expected Content-Type: application/json"}, 415)
             body = json.loads(self._body() or b"{}")
             return self._json(self.route(path, body))
         except Exception as e:
