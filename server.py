@@ -627,22 +627,26 @@ class Handler(BaseHTTPRequestHandler):
         if show:
             more = f" – {repeats} more since the last message" if repeats else ""
             print(f"Blocked request {key[0]} {key[1]}: {why} (Origin: {origin}, Host: {host}){more}")
-        # read a (small) request body first: answering while the client is still sending
-        # makes Windows reset the connection, and the client sees an error instead of 403
-        try:
-            n = int(self.headers.get("Content-Length") or 0)
-            if 0 < n <= 1 << 20:
-                self.rfile.read(n)
-            else:
-                self.close_connection = True
-        except (ValueError, OSError):
-            self.close_connection = True
+        self._drain()
         data = json.dumps({"error": "Forbidden"}).encode()
         self.send_response(403)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _drain(self):
+        """Read a (small) request body that won't be used before answering: answering while
+        the client is still sending makes Windows reset the connection, and the client sees
+        an error instead of the reply."""
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            if 0 < n <= 1 << 20:
+                self.rfile.read(n)
+            elif n:
+                self.close_connection = True
+        except (ValueError, OSError):
+            self.close_connection = True
 
     def _check(self, url):
         """True if the request may proceed; otherwise a 403 has been sent."""
@@ -737,6 +741,7 @@ class Handler(BaseHTTPRequestHandler):
             # which this server never approves
             ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
             if ctype != "application/json":
+                self._drain()
                 return self._json({"error": "Expected Content-Type: application/json"}, 415)
             body = json.loads(self._body() or b"{}")
             return self._json(self.route(path, body))
@@ -912,17 +917,21 @@ def hatch_test_options(b):
 
 
 def hatch_test(b, m, machine):
-    """Plot the hatch test strip with its top-left corner at the current pen position:
-    one square per spacing, with the current pen heights and speeds."""
+    """Plot the hatch test strip with its top-left corner at (x, y) on the sheet – where the
+    preview shows it – or at the current pen position: one square per spacing, with the
+    current pen heights and speeds."""
     angle, cross, join = hatch_test_options(b)
-    wx, wy = machine.status()["wpos"][:2]
-    x, y = G.from_machine(wx, wy, m)
+    try:
+        x, y = float(b["x"]), float(b["y"])
+    except (KeyError, TypeError, ValueError):
+        wx, wy = machine.status()["wpos"][:2]
+        x, y = G.from_machine(wx, wy, m)
     w, h = H.test_strip_size()
     if m.get("limits_on", True):
         ax0, ay0, ax1, ay1 = allowed_area(m, machine)
         if x < ax0 - 0.01 or y < ay0 - 0.01 or x + w > ax1 + 0.01 or y + h > ay1 + 0.01:
-            return {"error": f"The test strip ({w:.0f} × {h:.0f} mm, drawn to the right of and below "
-                             f"the pen) doesn't fit here. Move the pen to a free spot first."}
+            return {"error": f"The test strip ({w:.0f} × {h:.0f} mm) doesn't fit at X {x:.1f} / Y {y:.1f}. "
+                             f"Jog the pen to a free spot and click “Move to pen”."}
     err = machine.z_check(m["z_up"]) or machine.z_check(m["z_down"])
     if err:
         return {"error": err}

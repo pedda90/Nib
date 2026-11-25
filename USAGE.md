@@ -125,14 +125,20 @@ The hatching appears in the preview right away, and the time estimate includes i
 current settings, including “Connect lines”.
 
 **Finding the right spacing:** the real line width depends on the pen, the pressure and the paper,
-so there's a test strip instead of a pen-width setting. Put spare paper under the pen, jog to a
-free spot and click **Plot test**: six 20 mm squares with 0.2 to 0.8 mm spacing are drawn to the
-right of and below the pen, with the current pen heights and speeds. Then click the number of the
-square that looks right. Spacing a bit below the line width gives a solid area; larger spacing
-gives visible lines or lighter tones.
-The same test strip is also in the **Hatch test** section on the left (below *Speed & pen*), so you can
-try a pen before loading any file: choose Hatch or Cross, the angle and “Connect lines” – the strip
-is shown live on the sheet where it will be drawn (at the pen) – then **Plot test strip**, and enter the spacing you like later in a layer's Fill settings.
+so there's a test strip instead of a pen-width setting: six 20 mm squares with 0.2 to 0.8 mm
+spacing, each labelled. It lives in the **Hatch test** section on the left (below *Speed & pen*)
+and works without a file:
+
+1. Put spare paper under the pen and jog to a free spot.
+2. Choose Hatch or Cross, the angle and “Connect lines”, then click **Show test strip**. The strip
+   appears on the sheet at the pen (the design is hidden meanwhile) and stays there; changing the
+   settings updates it right away. **Move to pen** puts it at the pen again after jogging.
+3. **Plot test strip** draws it exactly there, with the current pen heights and speeds.
+   **Hide test strip** (or starting a normal plot) brings the design back.
+
+In a layer's Fill settings, **Show test** does the same with that layer's angle and options. Then
+click the number of the square that looks right. Spacing a bit below the line width gives a solid
+area; larger spacing gives visible lines or lighter tones.
 
 The settings are stored per layer (pen colour or layer name), so the next file with the same
 colour starts with them.

@@ -240,7 +240,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { re
     sec.classList.toggle("closed", closed);
     sec.querySelector("h2").onclick = () => {
       F[sec.id] = sec.classList.toggle("closed");
-      scheduleDraw(); dropHint();
+      scheduleDraw();
       try { localStorage.setItem("folds", JSON.stringify(F)); } catch (e) { /* ignore */ }
     };
   });
@@ -530,7 +530,7 @@ function draw() {
   }
   ctx.globalAlpha = 1;
 
-  if (doc) {
+  if (doc && !htAt) {
     blitLayers(d);
     const place = makePlacer();
     drawMarker(place);
@@ -557,8 +557,8 @@ function draw() {
     ctx.strokeRect(ax, ay, (x1 - x0) * view.s, (y1 - y0) * view.s); ctx.setLineDash([]); ctx.globalAlpha = 1;
   }
 
-  // hatch test strip, live, where it would be plotted (while the "Hatch test" section is open)
-  if (htPrev && !$("#secHatch").classList.contains("closed")) drawHatchTest();
+  // hatch test strip, where it will be plotted (only after "Show test strip"; the design is hidden then)
+  if (htAt && htPrev) drawHatchTest();
 
   // origin: corner mark at the sheet corner
   ctx.strokeStyle = TC.accent; ctx.lineWidth = 2; ctx.lineCap = "square"; ctx.beginPath();
@@ -1042,9 +1042,9 @@ function fillRow(l) {
       <label class="chk"><input type="checkbox" class="fol" ${f.outline ? "checked" : ""}> Trace the outline too</label>
       <label class="chk" title="On: neighbouring lines are joined into zigzags (far fewer pen lifts, faster). Off: every line is drawn on its own with the pen lifted in between – cleaner line ends, slower."><input type="checkbox" class="fjo" ${f.join ? "checked" : ""}> Connect lines</label>
       <div class="ftest"><span>Test strip</span>
-        <button class="quiet fplot" title="Plots six small squares with different spacings to the right of and below the pen, using the current pen heights and speeds"><svg class="ic"><use href="#i-hatch"/></svg>Plot test</button></div>
+        <button class="quiet fplot" title="Shows the test strip with this layer's angle and settings on the sheet (Hatch test section on the left), ready to plot"><svg class="ic"><use href="#i-hatch"/></svg>Show test</button></div>
       <div class="seg fpick">${TEST_SPACINGS.map((v) => `<button data-v="${v}" class="${Math.abs(v - f.spacing) < 1e-6 ? "on" : ""}" title="Use the spacing of this test square">${v.toFixed(1)}</button>`).join("")}</div>
-      <p class="hint">Plot the test strip on spare paper, then pick the square that looks right. Spacing is measured on paper, whatever the scale.</p>
+      <p class="hint">Show the test strip, plot it on spare paper, then pick the square that looks right. Spacing is measured on paper, whatever the scale.</p>
     </div>` : ""}`;
   box.querySelector(".filltog").onclick = () => { if (open) fillOpen.delete(l.key); else fillOpen.add(l.key); renderLayers(); };
   if (!open) return box;
@@ -1062,29 +1062,55 @@ function fillRow(l) {
   box.querySelector(".fol").onchange = (e) => setFill(l, { outline: e.target.checked });
   box.querySelector(".fjo").onchange = (e) => setFill(l, { join: e.target.checked });
   box.querySelectorAll(".fpick button").forEach((b) => (b.onclick = () => setFill(l, { spacing: +b.dataset.v, mode: on(f.mode) })));
-  box.querySelector(".fplot").onclick = () => plotHatchTest({ angle: f.angle, mode: f.mode, join: f.join });
+  box.querySelector(".fplot").onclick = () => hatchTestUse({ angle: f.angle, mode: f.mode, join: f.join });
   return box;
 }
 
-function plotHatchTest(opts) {
+/* Hatch test strip. "Show test strip" puts it on the sheet at the pen position of that moment
+   and hides the design; it stays there (the pen moving doesn't move it) and is plotted exactly
+   there. Settings changes update it live. */
+let htPrev = null;          // {size: [w, h], paths: [[x0, y0, x1, y1, …], …]} relative to the corner
+let htAt = null;            // [x, y] on the sheet while the strip is shown, otherwise null
+let closeHatchTest = () => {};
+let hatchTestUse = () => {};
+// "Drop an SVG here" only while there's nothing else on the sheet
+function dropHint() { $("#drop").classList.toggle("hidden", !!doc || !!htAt); }
+
+function plotHatchTest(opts, at) {
   if (!connected()) { logLocal("err", "Connect the plotter first."); return; }
   if (jobActive()) { logLocal("err", "Not possible while plotting."); return; }
-  if (!confirm("Plot the hatch test strip?\n\nIt is drawn to the right of and below the current pen position (about 140 × 26 mm), with the current pen heights and speeds. Move the pen to a free spot on spare paper first.")) return;
-  api("/api/hatch_test", opts);
+  if (!confirm(`Plot the hatch test strip?\n\nIt is drawn where the preview shows it (X ${at[0].toFixed(1)} / Y ${at[1].toFixed(1)} mm, about 140 × 26 mm), with the current pen heights and speeds. Use spare paper.`)) return;
+  api("/api/hatch_test", { ...opts, x: at[0], y: at[1] });
 }
 
-// "Hatch test" section on the left: the test strip without a file (settings remembered per browser)
+// "Hatch test" section on the left (its settings are remembered per browser)
 (function hatchTestPanel() {
   let ht = { mode: "hatch", angle: 45, join: true };
   try { ht = { ...ht, ...(JSON.parse(localStorage.getItem("hatchTest")) || {}) }; } catch (e) { /* ignore */ }
   const save = () => { try { localStorage.setItem("hatchTest", JSON.stringify(ht)); } catch (e) { /* ignore */ } };
+  const penPos = () => (connected() ? machineToPaper(st.wpos[0], st.wpos[1]) : [0, 0]);
+  const icon = '<svg class="ic"><use href="#i-hatch"/></svg>';
   const show = () => {
     $$("#htMode button").forEach((b) => b.classList.toggle("on", b.dataset.m === ht.mode));
     $("#htAngle").value = ht.angle; $("#htJoin").checked = ht.join;
+    $("#btnHatchShow").innerHTML = `${icon}${htAt ? "Hide test strip" : "Show test strip"}`;
+    $("#btnHatchMove").hidden = !htAt;
+    $("#htWhere").textContent = htAt
+      ? `Shown at X ${htAt[0].toFixed(1)} / Y ${htAt[1].toFixed(1)} mm – the design is hidden meanwhile.` : "";
   };
   const fetchPrev = () => {
+    if (!htAt) return;
     const q = `angle=${ht.angle}&mode=${ht.mode}&join=${ht.join}`;
     api(`/api/hatch_test_preview?${q}`).then((j) => { if (j && j.paths) { htPrev = j; scheduleDraw(); } });
+  };
+  const place = (at) => { htAt = at; show(); fetchPrev(); dropHint(); scheduleDraw(); };
+  closeHatchTest = () => { htAt = null; show(); dropHint(); scheduleDraw(); };
+  hatchTestUse = (opts) => {               // from a layer's Fill settings: same angle and options
+    ht = { ...ht, ...opts, mode: opts.mode === "cross" ? "cross" : "hatch" }; save();
+    const sec = $("#secHatch");
+    if (sec.classList.contains("closed")) sec.querySelector("h2").click();
+    place(htAt || penPos());
+    sec.scrollIntoView({ block: "nearest" });
   };
   $$("#htMode button").forEach((b) => (b.onclick = () => { ht.mode = b.dataset.m; save(); show(); fetchPrev(); }));
   $("#htAngle").onchange = () => {
@@ -1097,19 +1123,18 @@ function plotHatchTest(opts) {
     if (!isNaN(v) && v >= 0 && v <= 179) { ht.angle = v; save(); fetchPrev(); }
   };
   $("#htJoin").onchange = () => { ht.join = $("#htJoin").checked; save(); fetchPrev(); };
-  $("#btnHatchTest").onclick = () => plotHatchTest({ ...ht });
-  show(); fetchPrev(); setTimeout(dropHint);
+  $("#btnHatchShow").onclick = () => (htAt ? closeHatchTest() : place(penPos()));
+  $("#btnHatchMove").onclick = () => place(penPos());
+  $("#btnHatchTest").onclick = () => {
+    if (htAt) { plotHatchTest({ ...ht }, htAt); return; }
+    place(penPos());                              // show it first, then ask
+    setTimeout(() => plotHatchTest({ ...ht }, htAt), 400);
+  };
+  show();
 })();
 
-/* The test strip drawn on the sheet: top-left corner at the pen (sheet origin when not
-   connected), in the preview's pen width, with a frame that turns red if it doesn't fit. */
-let htPrev = null;
-// "Drop an SVG here" only while there's nothing else on the sheet (no file, no test strip preview)
-function dropHint() {
-  $("#drop").classList.toggle("hidden", !!doc || !$("#secHatch").classList.contains("closed"));
-}                     // {size: [w, h], paths: [[x0, y0, x1, y1, …], …]} relative to the corner
 function drawHatchTest() {
-  const [ox, oy] = connected() ? machineToPaper(st.wpos[0], st.wpos[1]) : [0, 0];
+  const [ox, oy] = htAt;
   const [w, h] = htPrev.size;
   const [x0, y0, x1, y1] = area();
   const fits = !S.machine.limits_on || (ox >= x0 - 0.01 && oy >= y0 - 0.01 && ox + w <= x1 + 0.01 && oy + h <= y1 + 0.01);
@@ -1129,7 +1154,7 @@ function drawHatchTest() {
   ctx.strokeStyle = fits ? TC.accent : TC.bad;
   ctx.strokeRect(Math.round(bx) + .5, Math.round(by) + .5, (w + 4) * view.s, (h + 4) * view.s); ctx.setLineDash([]);
   ctx.fillStyle = fits ? TC.accent : TC.bad; ctx.font = "500 12px 'Plex Sans', sans-serif";
-  ctx.fillText(fits ? "Hatch test strip – drawn here, at the pen" : "Hatch test strip doesn't fit here – move the pen", bx, by - 7);
+  ctx.fillText(fits ? "Hatch test strip – plotted here" : "Hatch test strip doesn't fit here – jog the pen and click “Move to pen”", bx, by - 7);
   ctx.restore();
 }
 
@@ -1178,6 +1203,7 @@ async function startPlot(layerIds, startLayer, startPath, reverse) {
   if (!connected()) { logLocal("err", "Connect the plotter first."); return; }
   if (!doc) { logLocal("err", "Load a file first."); return; }
   await hideSync;          // the server must know the current sublayer selection
+  if (htAt) closeHatchTest();
   layerIds = layerIds.filter((id) => (doc.layers.find((l) => l.id === id) || {}).count);
   if (!layerIds.length) { logLocal("err", "No layer selected."); return; }
   if (!(st && st.zero_set) && !confirm("Is the origin set?\n\nThe pen should sit at the top-left corner of the sheet, and “Set origin” should have been pressed there.\n\nStart anyway?")) return;
