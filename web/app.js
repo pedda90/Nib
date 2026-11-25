@@ -1058,7 +1058,7 @@ function fillRow(l) {
   box.querySelectorAll(".fpick button").forEach((b) => (b.onclick = () => setFill(l, { spacing: +b.dataset.v, mode: on(f.mode) })));
   box.querySelector(".fplot").onclick = async () => {
     if (!connected()) { logLocal("err", "Connect the plotter first."); return; }
-    if (!confirm("Plot the hatch test strip?\n\nIt is drawn to the right of and below the current pen position (about 75 × 15 mm), with the current pen heights and speeds. Move the pen to a free spot on spare paper first.")) return;
+    if (!confirm("Plot the hatch test strip?\n\nIt is drawn to the right of and below the current pen position (about 140 × 26 mm), with the current pen heights and speeds. Move the pen to a free spot on spare paper first.")) return;
     api("/api/hatch_test", { angle: f.angle, mode: f.mode });
   };
   return box;

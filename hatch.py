@@ -169,9 +169,10 @@ def text_paths(text, x, y, height=2.5):
 
 
 TEST_SPACINGS = (0.2, 0.3, 0.4, 0.5, 0.6, 0.8)
+TEST_SIZE, TEST_GAP, TEST_LABEL = 20.0, 4.0, 3.5     # square, gap, label height (mm)
 
 
-def test_strip(x, y, angle=45.0, cross=False, size=10.0, gap=3.0, spacings=TEST_SPACINGS):
+def test_strip(x, y, angle=45.0, cross=False, size=TEST_SIZE, gap=TEST_GAP, spacings=TEST_SPACINGS):
     """Paths of the hatch test strip with its top-left corner at (x, y), in sheet mm:
     one square per spacing, outlined, with the spacing written below it."""
     paths = []
@@ -180,10 +181,10 @@ def test_strip(x, y, angle=45.0, cross=False, size=10.0, gap=3.0, spacings=TEST_
         sq = [(x0, y), (x0 + size, y), (x0 + size, y + size), (x0, y + size), (x0, y)]
         paths += hatch_shape([sq], sp, angle, cross)
         paths.append(sq)
-        paths += text_paths(f"{sp:.1f}", x0 + 1, y + size + 1.5)
+        paths += text_paths(f"{sp:.1f}", x0 + 1, y + size + 2, TEST_LABEL)
     return paths
 
 
-def test_strip_size(n=len(TEST_SPACINGS), size=10.0, gap=3.0):
+def test_strip_size(n=len(TEST_SPACINGS), size=TEST_SIZE, gap=TEST_GAP):
     """(width, height) of the test strip in mm."""
-    return n * size + (n - 1) * gap, size + 4.5
+    return n * size + (n - 1) * gap, size + 2 + TEST_LABEL

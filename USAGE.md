@@ -125,7 +125,7 @@ lines are joined into zigzags where that stays inside the shape, which saves mos
 
 **Finding the right spacing:** the real line width depends on the pen, the pressure and the paper,
 so there's a test strip instead of a pen-width setting. Put spare paper under the pen, jog to a
-free spot and click **Plot test**: six 10 mm squares with 0.2 to 0.8 mm spacing are drawn to the
+free spot and click **Plot test**: six 20 mm squares with 0.2 to 0.8 mm spacing are drawn to the
 right of and below the pen, with the current pen heights and speeds. Then click the number of the
 square that looks right. Spacing a bit below the line width gives a solid area; larger spacing
 gives visible lines or lighter tones.
