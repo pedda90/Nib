@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.3.1 – 2026-11-25
+A small fix for 1.3.0.
+
 - Buttons that should be hidden stay hidden (e.g. “Summary of the last plot” showed while plotting).
 - New screenshots with a hatched layer; all release notes use the same layout.
 
