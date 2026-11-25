@@ -24,9 +24,19 @@ Double-click it. Windows may warn about an unknown app because the exe isn't sig
 **More info → Run anyway**. Settings are saved next to the exe.
 
 **macOS 11 or later, Apple Silicon (M1 or newer):** download `Nib-…-macos.zip`, unpack it and move
-**Nib.app** to *Applications*. The first time, macOS says it can't verify the developer because the
-app isn't signed: open **System Settings → Privacy & Security** and click **Open Anyway**
-(on older macOS: right-click the app → **Open**). Settings live in `~/Library/Application Support/Nib`.
+**Nib.app** to *Applications*. Settings live in `~/Library/Application Support/Nib`.
+The app isn't signed by Apple, so macOS blocks it the first time:
+1. Double-click **Nib.app** and close the warning with **Done**.
+2. Open **System Settings → Privacy & Security**, scroll all the way down and click **Open Anyway**
+   next to “Nib was blocked…”. Confirm with your password or Touch ID.
+3. Start Nib again and choose **Open**. From then on it starts normally.
+
+On macOS 14 or older, right-clicking the app → **Open** also works. If macOS says the app
+“is damaged” or there's no **Open Anyway** button, remove the download block in Terminal and start
+Nib again:
+```
+xattr -dr com.apple.quarantine /Applications/Nib.app
+```
 
 **Updating:** replace `Nib.exe` or `Nib.app` with the new version – settings are kept.
 

@@ -33,9 +33,11 @@ print(f"""## Download & start
 and double-click it. Windows may show a SmartScreen warning because the exe isn't signed: click \
 "More info", then "Run anyway".
 - **macOS 11 or later, Apple Silicon (M1 or newer):** download `Nib-{tag}-macos.zip`, unzip it and \
-move `Nib.app` to Applications. The first time, macOS says it can't verify the developer because the \
-app isn't signed: open System Settings → Privacy & Security and click **Open Anyway**. Intel Macs can \
-run Nib from source (see the README).
+move `Nib.app` to Applications. The app isn't signed by Apple, so macOS blocks it the first time: \
+double-click it and close the warning with **Done**, then open **System Settings → Privacy & Security**, \
+scroll all the way down, click **Open Anyway** and start Nib again. If macOS says the app "is damaged" or \
+there's no Open Anyway button, run `xattr -dr com.apple.quarantine /Applications/Nib.app` in Terminal. \
+Intel Macs can run Nib from source (see the README).
 
 **Updating:** replace `Nib.exe` or `Nib.app` with the new version. Your settings are kept.
 
