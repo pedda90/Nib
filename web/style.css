@@ -70,6 +70,8 @@ body { display: flex; flex-direction: column; overflow: hidden; font: 13px/1.4 v
 ::-webkit-scrollbar-track { background: transparent; }
 
 button, select, input { font: inherit; color: var(--text); }
+/* the hidden attribute must win over display rules like the one for buttons below */
+[hidden] { display: none !important; }
 button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   height: 30px; padding: 0 11px; border: 1px solid transparent; border-radius: var(--radius);

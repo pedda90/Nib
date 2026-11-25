@@ -1,6 +1,12 @@
 # Changelog
 
+## Unreleased
+- Buttons that should be hidden stay hidden (e.g. “Summary of the last plot” showed while plotting).
+- New screenshots with a hatched layer; all release notes use the same layout.
+
 ## 1.3.0 – 2026-11-25
+Hatch fill for filled shapes, a summary at the end of every plot, and notifications.
+
 - **Hatch fill:** filled shapes can be hatched or cross-hatched per layer, with adjustable spacing
   (on paper, independent of the scale) and angle, optionally with the outline. A test strip with
   six spacings helps to find the right one for a pen; it loads like a drawing (also without a
@@ -14,6 +20,9 @@
 - Refused API requests no longer make Windows reset the connection.
 
 ## 1.2.0 – 2026-11-25
+Safer and more reliable: the local API is protected, two streaming problems are fixed, and the
+releases are now built automatically.
+
 - **Security:** the local API only answers Nib's own page. Other web sites open in the browser
   can no longer control the plotter (per-start access token, Host/Origin check, JSON-only POSTs,
   no framing). A tab left open from an earlier start reloads itself to get the new token.
@@ -28,6 +37,8 @@
   releases are now built there too.
 
 ## 1.1.0 – 2026-11-24
+Nib now runs on macOS as a native app, alongside Windows.
+
 - **macOS:** Nib now runs on macOS as a native app (`Nib.app`, Apple Silicon), tested with the
   UUNATeK 3.0. Native dialogs, macOS serial ports (`/dev/cu.*`), settings in
   `~/Library/Application Support/Nib`. `Start Nib.command` and `build_app.command` for running and
@@ -38,4 +49,15 @@
 - `build_exe.bat` shows its progress, stops early if Nib.exe is still running and keeps its window open.
 
 ## 1.0.0 – 2026-11-24
-First public release (Windows).
+The first public release of Nib, a modern control software for the UUNATeK 3.0 pen plotter
+(GRBL/FluidNC), for Windows 10 and 11.
+
+- SVG import from Illustrator, Inkscape and similar tools, at the correct size in mm.
+- Layers by colour or by layer, with automatic pauses for pen changes.
+- Path optimisation: sorting, joining lines, removing duplicates, simplifying.
+- Live preview with progress and a realistic time estimate.
+- Pause/resume, and resuming after an abort, even after restarting Nib.
+- Plotting in reverse, or starting from any path.
+- Pen-height setup, jogging and a G-code console.
+- Built-in simulator for trying everything out without a plotter.
+- Light and dark theme.
