@@ -393,7 +393,7 @@ class Machine:
                     f.write("odd lines (most recent):\n")
                     for t, l in list(self._odd)[-40:]:
                         f.write(f"  {t} {l!r}\n")
-                    f.write("Verlauf:\n")
+                f.write("history:\n")
                 t0 = raw[0][0] if raw else 0
                 for t, k, l in raw:
                     f.write(f"{t - t0:8.3f} {k} {l!r}\n")

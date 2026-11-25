@@ -7,6 +7,7 @@ __pycache__/
 settings.json
 job_state.json
 webview_data/
+# old name of webview_data/ (app.py keeps using it if it can't be renamed)
 fensterdaten/
 
 # local
@@ -14,7 +15,6 @@ fensterdaten/
 
 # diagnostics / logs
 connection_diagnostics.log
-verbindung_diagnose.log
 nib.log
 
 # build output and release archives
