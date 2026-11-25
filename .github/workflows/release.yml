@@ -2,11 +2,14 @@
 # Start it by pushing a tag that matches VERSION in server.py:
 #   git tag v1.2.0 && git push origin v1.2.0
 # The release text is taken from the matching section of CHANGELOG.md.
+# "Run workflow" on the Actions page (manual start) is a dry run: it builds and passes the
+# files on as artifacts, but publishes nothing.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,12 +22,13 @@ jobs:
     needs: tests
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
           cache: pip
       - name: Check that the tag matches VERSION
+        if: github.ref_type == 'tag'
         shell: bash
         run: python .github/release_notes.py "$GITHUB_REF_NAME" --check
       - run: python -m pip install --disable-pip-version-check -r requirements.txt pyinstaller
@@ -38,7 +42,7 @@ jobs:
             --distpath dist --workpath build --specpath build `
             app.py
           Compress-Archive -Path dist\Nib.exe -DestinationPath "Nib-$env:GITHUB_REF_NAME-windows.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: Nib-*-windows.zip
@@ -47,12 +51,14 @@ jobs:
     needs: tests
     runs-on: macos-latest            # Apple Silicon
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
           cache: pip
-      - run: python .github/release_notes.py "$GITHUB_REF_NAME" --check
+      - name: Check that the tag matches VERSION
+        if: github.ref_type == 'tag'
+        run: python .github/release_notes.py "$GITHUB_REF_NAME" --check
       - run: python -m pip install --disable-pip-version-check -r requirements.txt pyinstaller pillow
       - name: Build Nib.app (same steps as build_app.command)
         run: |
@@ -71,7 +77,7 @@ jobs:
           codesign --force --deep --sign - dist/Nib.app
           # ditto keeps the symlinks and the signature inside the app bundle
           ditto -c -k --keepParent dist/Nib.app "Nib-$GITHUB_REF_NAME-macos.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: Nib-*-macos.zip
@@ -80,11 +86,14 @@ jobs:
     needs: [windows, macos]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
+      - name: List the files
+        run: ls -l Nib-*.zip
       - name: Publish the release
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
