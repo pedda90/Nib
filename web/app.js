@@ -17,11 +17,21 @@ let serverArea = null;   // allowed area from the server (incl. firmware limits)
 const area = () => serverArea || [0, 0, S.machine.max_x, S.machine.max_y];
 
 // ------------------------------------------------------------------ helpers
+// access token for the local API (inserted into index.html by the server at every start)
+const TOKEN = document.querySelector('meta[name="nib-token"]').content;
+const AUTH = { "X-Nib-Token": TOKEN };
+let forbidden = false;     // the server no longer accepts this page's token (see onForbidden)
+const withToken = (path) => `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(TOKEN)}`;
+
 async function api(path, body) {
   try {
-    const r = await fetch(path, body === undefined ? {} : {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    const r = await fetch(path, body === undefined ? { headers: AUTH } : {
+      method: "POST", headers: { ...AUTH, "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
+    if (r.status === 403) {
+      onForbidden();
+      return { error: "Forbidden" };
+    }
     const j = await r.json();
     if (j && j.error) logLocal("err", j.error);
     return j;
@@ -844,7 +854,8 @@ async function uploadFile(f) {
   if (!/\.svg$/i.test(f.name)) { logLocal("err", "Please choose an SVG file."); return; }
   $("#busy").hidden = false; $("#busy").textContent = `Processing “${f.name}”…`;
   try {
-    const r = await fetch("/api/upload", { method: "POST", headers: { "X-Filename": encodeURIComponent(f.name) }, body: f });
+    const r = await fetch("/api/upload", { method: "POST", headers: { ...AUTH, "X-Filename": encodeURIComponent(f.name) }, body: f });
+    if (r.status === 403) { onForbidden(); return; }
     const j = await r.json();
     if (j.error) { logLocal("err", j.error); return; }
     const newFile = !doc || doc.hash !== j.doc.hash;
@@ -1193,12 +1204,13 @@ $("#btnUnlock").onclick = () => api("/api/unlock", {});
 
 // closing the window: save pending settings and tell the server (it then exits)
 window.addEventListener("pagehide", () => {
+  if (forbidden) return;          // stale page: the server would refuse it anyway
   if (saveTimer_active()) {
     clearTimeout(saveTimer);
-    navigator.sendBeacon("/api/settings", new Blob([JSON.stringify(pendingSave)], { type: "application/json" }));
+    navigator.sendBeacon(withToken("/api/settings"), new Blob([JSON.stringify(pendingSave)], { type: "application/json" }));
     pendingSave = {};
   }
-  navigator.sendBeacon("/api/bye", new Blob(["{}"], { type: "application/json" }));
+  navigator.sendBeacon(withToken("/api/bye"), new Blob(["{}"], { type: "application/json" }));
 });
 
 window.addEventListener("keydown", (e) => {
@@ -1256,9 +1268,28 @@ function logLocal(k, m) { addLog({ k, m, t: new Date().toLocaleTimeString("en-GB
 
 // --------------------------------------------------------------- Status
 let lastJobKey = "";
+// A 403 means the server was restarted and made a new token (e.g. after closing the
+// console window, this tab stayed open). Reload once to get the new token; if that
+// doesn't help, stop polling instead of knocking on the door forever.
+function onForbidden() {
+  if (forbidden) return;
+  forbidden = true;
+  let last = 0;
+  try { last = Number(sessionStorage.getItem("nibReloadAt")) || 0; } catch (e) { /* storage blocked */ }
+  if (Date.now() - last > 15000) {
+    try { sessionStorage.setItem("nibReloadAt", String(Date.now())); } catch (e) { /* storage blocked */ }
+    location.reload();
+    return;
+  }
+  st = null; renderStatus();
+  logLocal("err", "Nib was restarted and doesn't accept this page any more – please reload it (F5) or close this tab.");
+}
+
 async function poll() {
+  if (forbidden) return;
   try {
-    const r = await fetch(`/api/status?log=${logSeq}`);
+    const r = await fetch(`/api/status?log=${logSeq}`, { headers: AUTH });
+    if (r.status === 403) { onForbidden(); return; }
     const j = await r.json();
     st = j.machine;
     serverArea = j.area;

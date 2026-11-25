@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+- **Security:** the local API only answers Nib's own page. Other web sites open in the browser
+  can no longer control the plotter (per-start access token, Host/Origin check, JSON-only POSTs,
+  no framing). A tab left open from an earlier start reloads itself to get the new token.
+- **Pen change:** if the controller restarts during a pen change (e.g. a loose USB cable), the
+  origin is lost – the job now stops instead of drawing the next layer in the wrong place.
+  The reset and unlock buttons keep working as before.
+- **Pen delays:** a pen up/down delay of about 0.4 s or more no longer confuses the streaming
+  (acknowledgements were taken as lost during the pause, which could overflow the controller's
+  receive buffer).
+- The simulator handles `G4` like the real controller. Automated tests in `tests/`
+  (`python -m pytest tests`).
+
 ## 1.1.0 – 2026-11-24
 - **macOS:** Nib now runs on macOS as a native app (`Nib.app`, Apple Silicon), tested with the
   UUNATeK 3.0. Native dialogs, macOS serial ports (`/dev/cu.*`), settings in

@@ -28,6 +28,8 @@ class MockSerial:
         self.rx_size = 256
         self.report_mask = 1          # $10
         self.drop_ok = 0.0            # test: probability that an 'ok' gets lost
+        self.rx_overflows = 0         # test: bytes that arrived while the receive buffer was full
+        self._moving = False          # the motion thread is executing a block
         self._gen = 0
         threading.Thread(target=self._motion, daemon=True).start()
         threading.Thread(target=self._line_worker, daemon=True).start()
@@ -69,6 +71,9 @@ class MockSerial:
             elif b == 0x85:
                 pass
             else:
+                if self._rx + len(self._inbuf) >= self.rx_size:
+                    self.rx_overflows += 1    # real GRBL drops the byte
+                    continue
                 self._inbuf += c
                 if c == b"\n":
                     line = self._inbuf.decode(errors="ignore").strip().upper()
@@ -150,11 +155,19 @@ class MockSerial:
             self._ok()
             return
         if g == 4:
-            self._planner.put(({"DWELL": words.get("P", 0)}, False, self._gen))
+            # like GRBL: finish all planned moves, then dwell. The state stays 'Idle' and
+            # the 'ok' only comes afterwards; later lines wait in the receive buffer.
+            gen = self._gen
+            while gen == self._gen and (not self._planner.empty() or self._moving):
+                time.sleep(0.005)
+            end = time.time() + words.get("P", 0) / self.speedup
+            while gen == self._gen and time.time() < end:
+                time.sleep(0.005)
+            if gen != self._gen:
+                return                    # reset during the dwell: no 'ok'
         self._out.put(b"ok\r\n")
 
     def _motion(self):
-        rel = False
         while True:
             try:
                 words, is_rel, gen = self._planner.get(timeout=0.05)
@@ -164,29 +177,32 @@ class MockSerial:
                 continue
             if gen != self._gen:
                 continue
+            self._moving = True
+            try:
+                self._move(words, is_rel)
+            finally:
+                self._moving = False
+
+    def _move(self, words, is_rel):
+        while self.hold:
+            time.sleep(0.02)
+        self._reset_flag.clear()
+        self.state = "Run"
+        if "F" in words:
+            self.feed = words["F"]
+        tgt = list(self.mpos)
+        for i, ax in enumerate("XYZ"):
+            if ax in words:
+                tgt[i] = (self.mpos[i] + words[ax]) if is_rel else (
+                    words[ax] if "G53" in words else words[ax] + self.g92[i])
+        d = math.dist(tgt, self.mpos)
+        dur = d / max(self.feed, 1) * 60 / self.speedup
+        steps = max(1, int(dur / 0.02))
+        start = list(self.mpos)
+        for s in range(1, steps + 1):
             while self.hold:
                 time.sleep(0.02)
-            self._reset_flag.clear()
-            self.state = "Run"
-            if "DWELL" in words:
-                time.sleep(words["DWELL"] / self.speedup)
-                continue
-            if "F" in words:
-                self.feed = words["F"]
-            tgt = list(self.mpos)
-            for i, ax in enumerate("XYZ"):
-                if ax in words:
-                    tgt[i] = (self.mpos[i] + words[ax]) if is_rel else (
-                        words[ax] if "G53" in words else words[ax] + self.g92[i])
-            d = math.dist(tgt, self.mpos)
-            dur = d / max(self.feed, 1) * 60 / self.speedup
-            steps = max(1, int(dur / 0.02))
-            start = list(self.mpos)
-            for s in range(1, steps + 1):
-                while self.hold:
-                    time.sleep(0.02)
-                if self._reset_flag.is_set():
-                    break
-                self.mpos = [start[i] + (tgt[i] - start[i]) * s / steps for i in range(3)]
-                time.sleep(dur / steps)
-            _ = rel
+            if self._reset_flag.is_set():
+                break
+            self.mpos = [start[i] + (tgt[i] - start[i]) * s / steps for i in range(3)]
+            time.sleep(dur / steps)

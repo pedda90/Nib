@@ -54,7 +54,8 @@ class Machine:
         self.on_ack = None        # callback(tag)
         self.on_error = None      # callback(text)
         self.on_alarm = None      # callback(text)
-        self.on_reset = None      # callback()
+        self.on_reset = None      # callback(expected): expected = Nib sent the reset itself
+        self._expect_reset = False  # soft_reset_keep_origin() is waiting for the banner
         self.on_fw = None         # callback(fw) once $130/$131 have been read
         self._last_ok_t = 0.0     # time of the last 'ok'
         self._idle_since = None   # since when the plotter has been reporting 'Idle'
@@ -252,10 +253,13 @@ class Machine:
                 with self.cv:
                     self.inflight.clear()
                     self.cv.notify_all()
+                expected, self._expect_reset = self._expect_reset, False
+                if not expected:
+                    self.zero_set = False      # the controller forgot the origin (G92)
                 self.banner_event.set()
                 self._log("info", f"Controller started: {line}")
                 if self.on_reset:
-                    self.on_reset()
+                    self.on_reset(expected)
             else:
                 self._log("rx", line)
 
@@ -331,20 +335,30 @@ class Machine:
                           f"(total {self.lost_acks_total})")
 
     LOST_ACK_WAIT = 0.4   # s of standstill after which missing 'ok' are assumed
+    DWELL = re.compile(r"G0*4(?!\d).*?P\s*(\d*\.?\d+)", re.I)
+
+    @classmethod
+    def _dwell_time(cls, line):
+        """Seconds a G4 line makes the controller wait (0 for other lines)."""
+        m = cls.DWELL.search(line)
+        return float(m.group(1)) if m else 0.0
 
     def _check_lost_acks(self):
         """Safety net: if the plotter went to standstill (Idle) *after* the oldest pending
         command was sent and no 'ok' has arrived for LOST_ACK_WAIT, it has executed all
         commands (verified: pen position = target of the last command sent); only the
-        acknowledgements are missing. Then release the counter so sending continues at once."""
+        acknowledgements are missing. Then release the counter so sending continues at once.
+        A G4 dwell also reports 'Idle' while its 'ok' is still to come and the lines after it
+        wait in the receive buffer, so the wait is extended by the dwell times pending."""
         now = time.time()
         w = self.LOST_ACK_WAIT
         with self.cv:
             if not self.inflight or not self.state.startswith("Idle"):
                 return
             oldest = self.inflight[0][3]
+            dwell = sum(self._dwell_time(i[1]) for i in self.inflight)
             if (self._idle_since is None or self._idle_since <= oldest
-                    or now - self._idle_since < w or now - self._last_ok_t < w):
+                    or now - self._idle_since < w + dwell or now - self._last_ok_t < w):
                 return
             n = len(self.inflight)
             pend = [i[1] for i in self.inflight]
@@ -464,8 +478,10 @@ class Machine:
         wpos = [self.mpos[i] - self.wco[i] for i in range(3)]
         self.clear_queue()
         self.banner_event.clear()
+        self._expect_reset = True        # the banner that follows is ours, not a crash
         self.realtime(b"\x18")
-        self.banner_event.wait(3)
+        if not self.banner_event.wait(3):
+            self._expect_reset = False   # no banner: don't excuse a later real restart
         time.sleep(0.2)
         with self.cv:
             self.inflight.clear()
@@ -569,12 +585,21 @@ class Job:
             self.message = f"Aborted by {text}"
             self._continue.set()
 
-    def _reset(self):
-        if self.state in ("running", "paused") and not self._abort:
-            self._abort = True
-            self.state = "aborted"
+    def _reset(self, expected=False):
+        if self._abort:
+            return
+        if self.state in ("running", "paused"):
             self.message = "The controller restarted unexpectedly"
-            self._continue.set()
+        elif self.state == "pen_change" and not expected:
+            # the origin (G92) is gone: continuing would draw the next layer in the wrong place.
+            # Resets Nib sends itself (reset / unlock button) restore the origin, so they're fine.
+            self.message = ("The controller restarted during the pen change, so the origin is lost. "
+                            "Set the origin again, then resume the plot.")
+        else:
+            return
+        self._abort = True
+        self.state = "aborted"
+        self._continue.set()
 
     def resume_point(self):
         if not self.recent and self._next_layer is not None:
