@@ -161,7 +161,7 @@ def check_limits(bbox, place, m, machine=None, wco_xy=None):
     return None
 
 
-FILL_DEFAULT = {"mode": "off", "spacing": 0.4, "angle": 45, "outline": True}
+FILL_DEFAULT = {"mode": "off", "spacing": 0.4, "angle": 45, "outline": True, "join": True}
 FILL_MODES = ("off", "hatch", "cross")
 
 
@@ -177,6 +177,7 @@ def fill_config(opts, key):
     except (TypeError, ValueError):
         c["spacing"], c["angle"] = FILL_DEFAULT["spacing"], FILL_DEFAULT["angle"]
     c["outline"] = bool(c["outline"])
+    c["join"] = bool(c["join"])
     return c
 
 
@@ -293,10 +294,11 @@ class App:
             if c["mode"] == "off":
                 continue
             # spacing is given on paper: undo the placement scale
-            hk = (fi, round(c["spacing"] / fscale, 5), c["angle"], c["mode"])
+            hk = (fi, round(c["spacing"] / fscale, 5), c["angle"], c["mode"], c["join"])
             lines = self._hatch_cache.get(hk)
             if lines is None:
-                lines = H.hatch_shape(f.rings, c["spacing"] / fscale, c["angle"], c["mode"] == "cross", f.rule)
+                lines = H.hatch_shape(f.rings, c["spacing"] / fscale, c["angle"], c["mode"] == "cross",
+                                      f.rule, join=c["join"])
                 self._hatch_cache[hk] = lines
             extra += [(pl, f.layer, f.color, f.sub) for pl in lines]
 
@@ -901,6 +903,7 @@ def hatch_test(b, m, machine):
     except (TypeError, ValueError):
         angle = 45.0
     cross = b.get("mode") == "cross"
+    join = b.get("join", True) is not False
     wx, wy = machine.status()["wpos"][:2]
     x, y = G.from_machine(wx, wy, m)
     w, h = H.test_strip_size()
@@ -914,7 +917,7 @@ def hatch_test(b, m, machine):
         return {"error": err}
     gb = G.GcodeBuilder(m)
     gb.header()
-    gb.layer(0, H.test_strip(x, y, angle, cross), lambda px, py: (px, py))
+    gb.layer(0, H.test_strip(x, y, angle, cross, join=join), lambda px, py: (px, py))
     gb.pen_up()
     sx, sy = G.to_machine(x, y, m)
     gb.emit(f"G1 X{G._fmt(sx)} Y{G._fmt(sy)} F{int(m['feed_travel'])}")   # back to where it started

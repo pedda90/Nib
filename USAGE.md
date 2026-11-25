@@ -118,10 +118,11 @@ shapes”); click it to open the settings:
 | **Spacing** | Distance between the lines, measured **on paper** – it stays the same when you scale the design. |
 | **Angle** | Direction of the lines (0° = horizontal). |
 | **Trace the outline too** | Also draws the edge of the shape, for a clean border. Shapes that have a stroke of their own keep it either way. |
+| **Connect lines (zigzag)** | On: neighbouring lines are joined into zigzags where that stays inside the shape – far fewer pen lifts, much faster. Off: every line is drawn on its own with the pen lifted in between – no connecting strokes along the edge, but slower. |
 
-The hatching appears in the preview right away, and the time estimate includes it. Neighbouring
-lines are joined into zigzags where that stays inside the shape, which saves most pen lifts. Holes
-(like in an “O”) stay empty, following the file's fill rule.
+The hatching appears in the preview right away, and the time estimate includes it. Holes
+(like in an “O”) stay empty, following the file's fill rule. The test strip uses the layer's
+current settings, including “Connect lines”.
 
 **Finding the right spacing:** the real line width depends on the pen, the pressure and the paper,
 so there's a test strip instead of a pen-width setting. Put spare paper under the pen, jog to a

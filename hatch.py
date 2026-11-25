@@ -130,11 +130,12 @@ def hatch_lines(rings, spacing, angle=45.0, rule="nonzero", trim=None, join=True
     return [[(x * c - y * s, x * s + y * c) for x, y in pl] for pl in lines if len(pl) >= 2]
 
 
-def hatch_shape(rings, spacing, angle=45.0, cross=False, rule="nonzero"):
-    """Hatch (and optionally cross-hatch at +90°) one shape."""
-    out = hatch_lines(rings, spacing, angle, rule)
+def hatch_shape(rings, spacing, angle=45.0, cross=False, rule="nonzero", join=True):
+    """Hatch (and optionally cross-hatch at +90°) one shape. join=False: every line on its own
+    (pen lifted in between) instead of zigzags."""
+    out = hatch_lines(rings, spacing, angle, rule, join=join)
     if cross:
-        out += hatch_lines(rings, spacing, angle + 90.0, rule)
+        out += hatch_lines(rings, spacing, angle + 90.0, rule, join=join)
     return out
 
 
@@ -172,14 +173,15 @@ TEST_SPACINGS = (0.2, 0.3, 0.4, 0.5, 0.6, 0.8)
 TEST_SIZE, TEST_GAP, TEST_LABEL = 20.0, 4.0, 3.5     # square, gap, label height (mm)
 
 
-def test_strip(x, y, angle=45.0, cross=False, size=TEST_SIZE, gap=TEST_GAP, spacings=TEST_SPACINGS):
+def test_strip(x, y, angle=45.0, cross=False, size=TEST_SIZE, gap=TEST_GAP, spacings=TEST_SPACINGS,
+               join=True):
     """Paths of the hatch test strip with its top-left corner at (x, y), in sheet mm:
     one square per spacing, outlined, with the spacing written below it."""
     paths = []
     for i, sp in enumerate(spacings):
         x0 = x + i * (size + gap)
         sq = [(x0, y), (x0 + size, y), (x0 + size, y + size), (x0, y + size), (x0, y)]
-        paths += hatch_shape([sq], sp, angle, cross)
+        paths += hatch_shape([sq], sp, angle, cross, join=join)
         paths.append(sq)
         paths += text_paths(f"{sp:.1f}", x0 + 1, y + size + 2, TEST_LABEL)
     return paths

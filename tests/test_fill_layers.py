@@ -80,6 +80,17 @@ def test_cross_hatch_and_scale(app):
     assert length(red(app)["paths"]) == pytest.approx(one / 2, rel=0.1)
 
 
+def test_connect_lines_off_draws_every_line_on_its_own(app):
+    app.process({"fill": {"#ff0000": {"mode": "hatch", "spacing": 1.0, "angle": 0, "join": True}}})
+    joined = red(app)["count"]
+    app.process({"fill": {"#ff0000": {"mode": "hatch", "spacing": 1.0, "angle": 0, "join": False}}})
+    single = red(app)
+    assert single["fill"]["join"] is False
+    assert single["count"] > 5 * joined
+    # every hatch line is a single straight stroke (2 points); only outlines have more
+    assert sum(len(p) == 2 for p in single["paths"]) >= single["count"] - 3
+
+
 def test_layer_ids_stay_put_when_outlines_are_dropped(app):
     before = [(l["id"], l["key"]) for l in app.doc["layers"]]
     # the red rect is the first red path; without its outline red's first path comes later

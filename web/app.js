@@ -992,7 +992,7 @@ function renderLayers() {
    so preview, time estimate and plot include the hatching. Spacing is set on paper, so the
    server also gets the placement scale (fill_scale). */
 const fillOpen = new Set();          // group keys whose fill settings are expanded
-const FILL_DEF = { mode: "off", spacing: 0.4, angle: 45, outline: true };
+const FILL_DEF = { mode: "off", spacing: 0.4, angle: 45, outline: true, join: true };
 const TEST_SPACINGS = [0.2, 0.3, 0.4, 0.5, 0.6, 0.8];
 const procOpts = () => ({ ...S.optimize, fill_scale: S.place.scale });
 const fillOf = (l) => ({ ...FILL_DEF, ...(l.fill || {}), ...((S.optimize.fill || {})[l.key] || {}) });
@@ -1036,6 +1036,7 @@ function fillRow(l) {
       <label class="frow"><span>Angle</span><input type="range" class="fan" min="0" max="175" step="5" value="${f.angle}">
         <input type="number" class="fann" min="0" max="179" step="5" value="${Math.round(f.angle)}"><i>°</i></label>
       <label class="chk"><input type="checkbox" class="fol" ${f.outline ? "checked" : ""}> Trace the outline too</label>
+      <label class="chk" title="On: neighbouring lines are joined into zigzags (far fewer pen lifts, faster). Off: every line is drawn on its own with the pen lifted in between – cleaner line ends, slower."><input type="checkbox" class="fjo" ${f.join ? "checked" : ""}> Connect lines (zigzag)</label>
       <div class="ftest"><span>Test strip</span>
         <button class="quiet fplot" title="Plots six small squares with different spacings to the right of and below the pen, using the current pen heights and speeds"><svg class="ic"><use href="#i-hatch"/></svg>Plot test</button></div>
       <div class="seg fpick">${TEST_SPACINGS.map((v) => `<button data-v="${v}" class="${Math.abs(v - f.spacing) < 1e-6 ? "on" : ""}" title="Use the spacing of this test square">${v.toFixed(1)}</button>`).join("")}</div>
@@ -1055,11 +1056,12 @@ function fillRow(l) {
   an.onchange = () => setFill(l, { angle: +an.value });
   ann.onchange = () => { const v = num(ann.value, 0, 179); if (v !== null) setFill(l, { angle: v }); };
   box.querySelector(".fol").onchange = (e) => setFill(l, { outline: e.target.checked });
+  box.querySelector(".fjo").onchange = (e) => setFill(l, { join: e.target.checked });
   box.querySelectorAll(".fpick button").forEach((b) => (b.onclick = () => setFill(l, { spacing: +b.dataset.v, mode: on(f.mode) })));
   box.querySelector(".fplot").onclick = async () => {
     if (!connected()) { logLocal("err", "Connect the plotter first."); return; }
     if (!confirm("Plot the hatch test strip?\n\nIt is drawn to the right of and below the current pen position (about 140 × 26 mm), with the current pen heights and speeds. Move the pen to a free spot on spare paper first.")) return;
-    api("/api/hatch_test", { angle: f.angle, mode: f.mode });
+    api("/api/hatch_test", { angle: f.angle, mode: f.mode, join: f.join });
   };
   return box;
 }
