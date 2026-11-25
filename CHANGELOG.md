@@ -6,6 +6,10 @@
   six spacings helps to find the right one for a pen; it loads like a drawing (also without a
   file) and gives your file back when closed. Lines can be joined into zigzags or drawn one by
   one. Preview and time estimate include it.
+- **Plot summary** when a plot ends or is stopped: plot time with the estimate in brackets, line
+  length per pen and in total, number of lines, time per pen and from start to end.
+- **Notifications:** a system notification (Windows, macOS) and a short sound when the plot ends
+  or the next pen is due. Can be switched off under *Layers*.
 - Refused API requests no longer make Windows reset the connection.
 
 ## 1.2.0 – 2026-11-25

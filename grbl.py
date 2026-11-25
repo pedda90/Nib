@@ -551,6 +551,7 @@ class Job:
         self._pause_t = None
         self._wait_t = None                 # waiting for a pen change (not counted as plot time)
         self.layer_el0 = 0.0                # plot time when the current layer started
+        self.layer_secs = {}                # layer index -> plot seconds (known once a layer is drawn)
         self.done_paths_before = 0
         self._continue = threading.Event()
         self._abort = False
@@ -642,6 +643,7 @@ class Job:
                 self.m.queue_lines(self.change_moves() if self.change_moves else self.footer(False))
                 if not self._wait_done():
                     return
+                self.layer_secs[li - 1] = self.elapsed() - self.layer_el0
                 # the layer before is fully drawn: resume point = next layer
                 self.recent.clear()
                 self._next_layer = li
@@ -676,6 +678,9 @@ class Job:
             self.m.queue_lines(lines)
         self.m.queue_lines(self.footer(True))
         if self._wait_done():
+            # per-layer times are only known when layers are separated by pen changes
+            if self.pen_change or len(self.layers) - self.start_layer == 1:
+                self.layer_secs[len(self.layers) - 1] = self.elapsed() - self.layer_el0
             self.state = "done"
             self.message = "Plot complete"
             self.m._log("info", f"Plot finished in {self.elapsed_str()}")

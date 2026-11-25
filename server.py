@@ -25,6 +25,7 @@ import numpy as np
 import gcode as G
 import hatch as H
 import optimize as O
+from notify import notify
 from grbl import Job, Machine, list_ports
 from svgload import load_svg
 
@@ -68,7 +69,7 @@ DEFAULTS = {
     "place": {"x": 10.0, "y": 10.0, "scale": 1.0, "rotate": 0},
     "optimize": {"group": "auto", "simplify": 0.02, "merge_tol": 0.1, "min_len": 0.0,
                  "dedupe": True, "sort": True, "merge": True, "curve_step": 0.3},
-    "job": {"pen_change": True, "go_home": True, "reverse": False},
+    "job": {"pen_change": True, "go_home": True, "reverse": False, "notify": True},
 }
 
 
@@ -574,6 +575,12 @@ class App:
         job.layer_ids = ids
         job.place = place
         job.reverse = reverse
+        job.file_name = self.doc["name"]
+        job.lost0 = self.machine.lost_acks_total
+        try:                                   # the client's time estimate at the start, for the summary
+            job.estimate = float(body["estimate"]) if body.get("estimate") is not None else None
+        except (TypeError, ValueError):
+            job.estimate = None
         self.job = job
         self.settings["place"] = place
         self.save_settings()
@@ -585,9 +592,70 @@ class App:
         return {"ok": True}
 
     def _watch_job(self, job):
+        last = job.state
         while job.state in ("running", "paused", "pen_change"):
+            if job.state == "pen_change" and last != "pen_change" and self.settings["job"].get("notify", True):
+                nl = job.layers[job.layer_idx] if job.layer_idx < len(job.layers) else {}
+                notify("Nib – change pen", f"Layer {job.layer_idx + 1} of {len(job.layers)}: "
+                                           f"{str(nl.get('name', '')).split('  ')[0]}. Continue in Nib when ready.")
+            last = job.state
             time.sleep(0.5)
+        try:
+            sm = self.plot_summary(job)
+        except Exception:
+            traceback.print_exc()
+            sm = None
         self.save_progress(job, force=True, finished=(job.state == "done"))
+        if self.settings["job"].get("notify", True) and sm:
+            title = "Nib – plot complete" if job.state == "done" else "Nib – plot stopped"
+            notify(title, f"{sm['file']}: {sm['draw_m']:.1f} m of line in {_hms(sm['plot_secs'])}"
+                          + (f" (estimate {_hms(sm['estimate'])})" if sm.get("estimate") else "")
+                          + ("" if job.state == "done" else f" – {job.message}"))
+        job.summary = sm                           # last: the page shows it once it's there
+
+    def plot_summary(self, job):
+        """What a finished (or stopped) plot did: line length per pen and in total, times,
+        and the estimate from the start."""
+        scale = float((getattr(job, "place", None) or {}).get("scale", 1.0))
+        by_id = {l["id"]: l for l in (self.doc or {}).get("layers", [])}
+        done = job.state == "done"
+        rows = []
+        for i, lid in enumerate(job.layer_ids):
+            l = by_id.get(lid)
+            if l is None or i < job.start_layer or (not done and i > job.layer_idx):
+                continue
+            n = len(l["paths"])
+            sp = job.start_path if i == job.start_layer else None
+            if getattr(job, "reverse", False):
+                lo, hi = 0, (n - 1 if sp is None else min(sp, n - 1))
+            else:
+                lo, hi = (0 if sp is None else sp), n - 1
+            if not done and i == job.layer_idx:
+                if not job.recent and job._next_layer == i:
+                    continue                       # stopped during the pen change before this layer
+                if getattr(job, "reverse", False):
+                    lo = max(lo, job.path_idx)
+                else:
+                    hi = min(hi, job.path_idx)
+            if hi < lo:
+                continue
+            draw = sum(O.path_length(p) for p in l["paths"][lo:hi + 1]) * scale
+            secs = job.layer_secs.get(i)
+            if secs is None and not done and i == job.layer_idx and job.pen_change:
+                secs = job.elapsed() - job.layer_el0
+            rows.append({"name": str(l["name"]).split("  ")[0], "color": l["color"],
+                         "draw_m": round(draw / 1000, 3), "paths": hi - lo + 1,
+                         "secs": None if secs is None else round(secs, 1)})
+        return {
+            "file": getattr(job, "file_name", ""), "state": job.state, "message": job.message,
+            "pens": rows, "draw_m": round(sum(r["draw_m"] for r in rows), 3),
+            "paths": sum(r["paths"] for r in rows),
+            "plot_secs": round(job.elapsed(), 1),                     # without pen changes and pauses
+            "wall_secs": round(time.time() - job.t_start, 1),         # from start to end, everything
+            "estimate": getattr(job, "estimate", None),
+            "errors": job.errors, "lost_acks": self.machine.lost_acks_total - getattr(job, "lost0", 0),
+            "ended": time.strftime("%H:%M"),
+        }
 
     def job_info(self):
         if not self.job:
@@ -596,6 +664,7 @@ class App:
         info["layers"] = self.job.layers
         info["layer_ids"] = self.job.layer_ids
         info["reverse"] = getattr(self.job, "reverse", False)
+        info["summary"] = getattr(self.job, "summary", None)
         return info
 
 
@@ -944,6 +1013,11 @@ def hatch_test_options(b):
         angle = 45.0
     join = b.get("join", True)
     return angle, b.get("mode") == "cross", join not in (False, "false", "0")
+
+
+def _hms(sec):
+    sec = int(round(sec or 0))
+    return f"{sec // 3600}:{sec % 3600 // 60:02d}:{sec % 60:02d}" if sec >= 3600 else f"{sec // 60}:{sec % 60:02d}"
 
 
 def _job_busy():

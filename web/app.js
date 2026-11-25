@@ -1189,7 +1189,8 @@ async function startPlot(layerIds, startLayer, startPath, reverse) {
   layerIds = layerIds.filter((id) => (doc.layers.find((l) => l.id === id) || {}).count);
   if (!layerIds.length) { logLocal("err", "No layer selected."); return; }
   if (!(st && st.zero_set) && !confirm("Is the origin set?\n\nThe pen should sit at the top-left corner of the sheet, and “Set origin” should have been pressed there.\n\nStart anyway?")) return;
-  const r = await api("/api/job/start", { layers: layerIds, start_layer: startLayer, start_path: startPath, place: S.place, reverse: !!reverse });
+  const estimate = estimateFrom(layerIds, startLayer, startPath, !!reverse);
+  const r = await api("/api/job/start", { layers: layerIds, start_layer: startLayer, start_path: startPath, place: S.place, reverse: !!reverse, estimate });
   if (r.ok) { resumeInfo = null; startSel = null; renderResume(); renderStartInfo(); }
 }
 $("#btnStart").onclick = () => {
@@ -1271,7 +1272,78 @@ function jobTimes() {
     perLeft: per.map((x, i) => x * (i === job.layer ? rCur : rFut)) };
 }
 
+// --------------------------------------------------------------- plot summary and notifications
+/* When a plot this page watched ends, a summary pops up (line length per pen and in total,
+   times with the estimate from the start); it stays available under Plot. A short sound marks
+   the end and every pen change; the server shows a system notification at the same moments. */
+let sumSeen = "", sumWatched = "", lastJobState = "";
+function estimateFrom(ids, sl, sp, rev) {
+  let t = 0;
+  ids.forEach((id, i) => {
+    if (i < sl) return;
+    const l = doc.layers.find((x) => x.id === id);
+    if (!l) return;
+    const c = layerCum(l), n = c.length - 1, T = c[n];
+    if (i === sl && sp !== null && sp !== undefined) t += rev ? c[Math.min(n, sp + 1)] : T - c[Math.min(n, Math.max(0, sp))];
+    else t += T;
+  });
+  return t * timeFactor();
+}
+function chime(kind) {
+  if (!(S.job && S.job.notify)) return;
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const notes = kind === "done" ? [660, 880, 1320] : [880, 660];
+    notes.forEach((f, i) => {
+      const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime + i * 0.16;
+      o.frequency.value = f; o.type = "sine";
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.2, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+      o.connect(g).connect(ac.destination); o.start(t); o.stop(t + 0.32);
+    });
+    setTimeout(() => ac.close(), 1500);
+  } catch (e) { /* no audio */ }
+}
+function showSummary(sm) {
+  if (!sm) return;
+  const done = sm.state === "done";
+  const est = sm.estimate ? ` <span>(estimate ${fmtTime(sm.estimate)})</span>` : "";
+  const rows = sm.pens.map((p) => `<tr><td><span class="sw" style="background:${p.color}"></span>${esc(p.name)}</td>
+    <td class="n">${fmtNum(p.draw_m, 1)} m</td><td class="n">${fmtNum(p.paths)}</td>
+    <td class="n">${p.secs === null ? "–" : fmtTime(p.secs)}</td></tr>`).join("");
+  const pauses = sm.wall_secs - sm.plot_secs;
+  $("#sumBody").innerHTML = `<h3>${done ? "Plot complete" : "Plot stopped"}</h3>
+    <div class="sub">${esc(sm.file)} · ended ${esc(sm.ended)}${done ? "" : ` · ${esc(sm.message)}`}</div>
+    <div class="big">
+      <div><b>${fmtTime(sm.plot_secs)}</b><span>plot time${est}</span></div>
+      <div><b>${fmtNum(sm.draw_m, 1)} m</b><span>of line drawn</span></div>
+      <div><b>${fmtNum(sm.paths)}</b><span>lines (pen lifts)</span></div>
+      <div><b>${fmtTime(sm.wall_secs)}</b><span>start to end${pauses > 5 ? `, incl. ${fmtTime(pauses)} pen changes and pauses` : ""}</span></div>
+    </div>
+    ${sm.pens.length ? `<table><tr><th>Pen</th><th class="n">Line</th><th class="n">Lines</th><th class="n">Time</th></tr>${rows}</table>` : ""}
+    ${sm.pens.length > 1 && sm.pens.some((p) => p.secs === null) ? `<p class="note">Times per pen are measured when the plot pauses between layers (pen change).</p>` : ""}
+    ${sm.errors ? `<p class="note warn">${sm.errors} error${sm.errors > 1 ? "s" : ""} reported by the plotter – see the console.</p>` : ""}`;
+  const dlg = $("#sumDlg");
+  if (!dlg.open) dlg.showModal();
+}
+$("#btnSummary").onclick = () => job && showSummary(job.summary);
+function watchJobEnd() {
+  if (!job) { $("#btnSummary").hidden = true; return; }
+  const id = String(job.id);
+  if (jobActive()) sumWatched = id;                     // this page saw the plot running
+  if (job.state === "pen_change" && lastJobState !== "pen_change" && sumWatched === id) chime("pen");
+  lastJobState = job.state;
+  const finished = (job.state === "done" || job.state === "aborted") && job.summary;
+  $("#btnSummary").hidden = !finished;
+  if (finished && sumWatched === id && sumSeen !== id) {
+    sumSeen = id;
+    if (job.state === "done") chime("done");
+    showSummary(job.summary);
+  }
+}
+
 function renderJob() {
+  watchJobEnd();
   const active = jobActive();
   if (!active && viewOff.size) { viewOff.clear(); renderLayers(); scheduleDraw(); }
   // the resume hint only makes sense while no plot is running

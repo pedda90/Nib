@@ -179,6 +179,16 @@ remembered position is the start of the next layer (e.g. layer 2, path 1).
 | **Start from** | **Pick in preview**, then click a line. A red marker shows the spot. Lines already done are faded, the ones still to plot are solid. Layer and path can also be entered as numbers (**Layer**, **Path no.**); **Reset** starts from the beginning again. |
 | **Resume after an abort** | **Show & resume here** sets the interrupted position (including direction) as the start point. Then start with **Plot**. Works even after restarting Nib. |
 
+**When a plot ends** (or is stopped), a summary opens: plot time with the estimate from the start
+in brackets, the length of line drawn, the number of lines (pen lifts), the time from start to end
+including pen changes and pauses, and a table per pen (line length, lines, time). The time per pen
+is measured when the plot pauses between layers. **Summary of the last plot** under *Plot* opens it
+again.
+
+**Notifications:** with “Notify when done or at a pen change” (under *Layers*, on by default) Nib
+shows a system notification and plays a short sound when the plot ends or the next pen is due –
+handy when Nib is in the background or you're in another room.
+
 ---
 
 ## Safe operation

@@ -101,6 +101,8 @@ For development, `server.py --keep-running` turns that off.
   strip to find the right spacing for your pen.
 - Preview with travel moves and live progress (colours can be hidden in the preview even while plotting).
 - Realistic time estimate (acceleration of the plotter included), remaining time for the current pen and in total.
+- Summary when a plot ends (time vs. estimate, metres of line per pen) and a system notification
+  when it's done or the next pen is due.
 - Pause/resume (also with the space bar), stop without losing the origin,
   **resume after an abort** (even after restarting the program) or start from any path.
 - **Plot in reverse** (end to start) and pick the start point by clicking in the preview.
@@ -134,6 +136,7 @@ The fine print is in [LICENSE.md](LICENSE.md) (PolyForm Noncommercial 1.0.0).
 | `svgload.py` | SVG import |
 | `optimize.py` | Path optimization |
 | `hatch.py` | Hatch fill for filled shapes, test strip |
+| `notify.py` | System notifications (Windows, macOS) |
 | `gcode.py` | Placement and G-code |
 | `mockgrbl.py` | Simulated plotter |
 | `app.py` | Program window (Nib.exe / Nib.app) |
