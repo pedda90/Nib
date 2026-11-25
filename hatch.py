@@ -69,7 +69,8 @@ def _inside(e, x, y, evenodd):
 def hatch_lines(rings, spacing, angle=45.0, rule="nonzero", trim=None, join=True):
     """Hatch lines for one shape, as polylines [[(x, y), ...], ...] in the shape's units.
 
-    spacing: distance between lines. angle: degrees (0 = horizontal). trim: how far line ends
+    spacing: distance between lines. angle: degrees, 0 = horizontal, counterclockwise as seen on
+    paper (y points down there, so 45° rises to the right like "/"). trim: how far line ends
     stay away from the edge (default half the spacing, so ink doesn't spill over the outline).
     join: connect neighbouring lines into zigzags where the short connector stays inside the
     shape, which saves most pen lifts."""
@@ -81,7 +82,7 @@ def hatch_lines(rings, spacing, angle=45.0, rule="nonzero", trim=None, join=True
         return []
     evenodd = rule == "evenodd"
     trim = spacing / 2 if trim is None else float(trim)
-    a = math.radians(angle)
+    a = math.radians(-angle)                       # y down: negative = counterclockwise on paper
     # work in a frame where the hatch lines are horizontal
     er = _rotate(e, math.cos(-a), math.sin(-a))
     er = er[er[:, 1] != er[:, 3]]                  # horizontal edges never cross a scanline

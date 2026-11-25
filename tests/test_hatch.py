@@ -79,6 +79,14 @@ def test_zigzag_does_not_jump_across_a_gap():
         assert not (lo < 12.5 < hi)
 
 
+def test_angle_is_counterclockwise_on_paper():
+    # y points down on paper: at 45° a line must rise to the right ("/"), i.e. y falls as x grows
+    (x0, y0), (x1, y1) = H.hatch_lines([SQ], 2.0, angle=45, join=False)[0]
+    assert (x1 - x0) * (y1 - y0) < 0
+    (x0, y0), (x1, y1) = H.hatch_lines([SQ], 2.0, angle=90, join=False)[0]
+    assert abs(x1 - x0) < 1e-9                       # vertical
+
+
 def test_cross_hatch_doubles_lines():
     one = drawn_length(H.hatch_shape([SQ], 1.0, 45, cross=False))
     two = drawn_length(H.hatch_shape([SQ], 1.0, 45, cross=True))
