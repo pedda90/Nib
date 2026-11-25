@@ -130,6 +130,9 @@ free spot and click **Plot test**: six 20 mm squares with 0.2 to 0.8 mm spacing 
 right of and below the pen, with the current pen heights and speeds. Then click the number of the
 square that looks right. Spacing a bit below the line width gives a solid area; larger spacing
 gives visible lines or lighter tones.
+The same test strip is also in the **Hatch test** section on the left (below *Speed & pen*), so you can
+try a pen before loading any file: choose Hatch or Cross, the angle and “Connect lines”, then
+**Plot test strip**, and enter the spacing you like later in a layer's Fill settings.
 
 The settings are stored per layer (pen colour or layer name), so the next file with the same
 colour starts with them.

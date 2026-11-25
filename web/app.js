@@ -234,7 +234,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { re
 (function folds() {
   let F = {};
   try { F = JSON.parse(localStorage.getItem("folds")) || {}; } catch (e) { F = {}; }
-  const DEFAULT_CLOSED = { secMachine: true, secOpt: true };
+  const DEFAULT_CLOSED = { secMachine: true, secOpt: true, secHatch: true };
   $$("section.fold").forEach((sec) => {
     const closed = sec.id in F ? F[sec.id] : !!DEFAULT_CLOSED[sec.id];
     sec.classList.toggle("closed", closed);
@@ -1058,13 +1058,36 @@ function fillRow(l) {
   box.querySelector(".fol").onchange = (e) => setFill(l, { outline: e.target.checked });
   box.querySelector(".fjo").onchange = (e) => setFill(l, { join: e.target.checked });
   box.querySelectorAll(".fpick button").forEach((b) => (b.onclick = () => setFill(l, { spacing: +b.dataset.v, mode: on(f.mode) })));
-  box.querySelector(".fplot").onclick = async () => {
-    if (!connected()) { logLocal("err", "Connect the plotter first."); return; }
-    if (!confirm("Plot the hatch test strip?\n\nIt is drawn to the right of and below the current pen position (about 140 × 26 mm), with the current pen heights and speeds. Move the pen to a free spot on spare paper first.")) return;
-    api("/api/hatch_test", { angle: f.angle, mode: f.mode, join: f.join });
-  };
+  box.querySelector(".fplot").onclick = () => plotHatchTest({ angle: f.angle, mode: f.mode, join: f.join });
   return box;
 }
+
+function plotHatchTest(opts) {
+  if (!connected()) { logLocal("err", "Connect the plotter first."); return; }
+  if (jobActive()) { logLocal("err", "Not possible while plotting."); return; }
+  if (!confirm("Plot the hatch test strip?\n\nIt is drawn to the right of and below the current pen position (about 140 × 26 mm), with the current pen heights and speeds. Move the pen to a free spot on spare paper first.")) return;
+  api("/api/hatch_test", opts);
+}
+
+// "Hatch test" section on the left: the test strip without a file (settings remembered per browser)
+(function hatchTestPanel() {
+  let ht = { mode: "hatch", angle: 45, join: true };
+  try { ht = { ...ht, ...(JSON.parse(localStorage.getItem("hatchTest")) || {}) }; } catch (e) { /* ignore */ }
+  const save = () => { try { localStorage.setItem("hatchTest", JSON.stringify(ht)); } catch (e) { /* ignore */ } };
+  const show = () => {
+    $$("#htMode button").forEach((b) => b.classList.toggle("on", b.dataset.m === ht.mode));
+    $("#htAngle").value = ht.angle; $("#htJoin").checked = ht.join;
+  };
+  $$("#htMode button").forEach((b) => (b.onclick = () => { ht.mode = b.dataset.m; save(); show(); }));
+  $("#htAngle").onchange = () => {
+    const v = parseFloat($("#htAngle").value);
+    if (!isNaN(v)) ht.angle = Math.min(179, Math.max(0, v));
+    save(); show();
+  };
+  $("#htJoin").onchange = () => { ht.join = $("#htJoin").checked; save(); };
+  $("#btnHatchTest").onclick = () => plotHatchTest({ ...ht });
+  show();
+})();
 
 /* Visible paths of every layer = all paths (in plot order) minus hidden sublayers.
    The server sends each layer's paths once with their sublayer, so showing/hiding a
