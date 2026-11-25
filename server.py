@@ -531,9 +531,23 @@ class Handler(BaseHTTPRequestHandler):
         sent = self.headers.get("X-Nib-Token") or (parse_qs(query).get("token") or [""])[0]
         return hmac.compare_digest(sent.encode(), TOKEN.encode())
 
+    _deny_seen = {}           # (method, path, reason, origin, host) -> [time last printed, repeats since]
+    _deny_lock = threading.Lock()
+
     def _deny(self, why):
-        print(f"Blocked request {self.command} {urlparse(self.path).path}: {why} "
-              f"(Origin: {self.headers.get('Origin')}, Host: {self.headers.get('Host')})")
+        # a stale browser tab can knock several times a second: print each kind of
+        # refusal at most every 10 s, with the number of repeats in between
+        origin, host = self.headers.get("Origin"), self.headers.get("Host")
+        key = (self.command, urlparse(self.path).path, why, origin, host)
+        now = time.time()
+        with Handler._deny_lock:
+            seen = Handler._deny_seen.setdefault(key, [0.0, 0])
+            show = now - seen[0] >= 10
+            repeats = seen[1]
+            seen[:] = [now, 0] if show else [seen[0], seen[1] + 1]
+        if show:
+            more = f" – {repeats} more since the last message" if repeats else ""
+            print(f"Blocked request {key[0]} {key[1]}: {why} (Origin: {origin}, Host: {host}){more}")
         data = json.dumps({"error": "Forbidden"}).encode()
         self.send_response(403)
         self.send_header("Content-Type", "application/json; charset=utf-8")
