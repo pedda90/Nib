@@ -126,17 +126,17 @@ current settings, including “Connect lines”.
 
 **Finding the right spacing:** the real line width depends on the pen, the pressure and the paper,
 so there's a test strip instead of a pen-width setting: six 20 mm squares with 0.2 to 0.8 mm
-spacing, each labelled. It lives in the **Hatch test** section on the left (below *Speed & pen*)
-and works without a file:
+spacing, each labelled. It's in the **Hatch test** section on the left (below *Speed & pen*) and
+works without a file of your own:
 
-1. Put spare paper under the pen and jog to a free spot.
-2. Choose Hatch or Cross, the angle and “Connect lines”, then click **Show test strip**. The strip
-   appears on the sheet at the pen (the design is hidden meanwhile) and stays there; changing the
-   settings updates it right away. **Move to pen** puts it at the pen again after jogging.
-3. **Plot test strip** draws it exactly there, with the current pen heights and speeds.
-   **Hide test strip** (or starting a normal plot) brings the design back.
+1. Choose Hatch or Cross, the angle and “Connect lines”, then click **Load test strip**. It is loaded
+   like a drawing – your file is set aside – and placed at the pen.
+2. Move it with the mouse or under **Placement**, like any drawing, onto spare paper. Changing the
+   settings updates it in place.
+3. Plot it with **Plot**.
+4. **Close test strip** brings your file back, where it was.
 
-In a layer's Fill settings, **Show test** does the same with that layer's angle and options. Then
+In a layer's Fill settings, **Load test** does the same with that layer's angle and options. Then
 click the number of the square that looks right. Spacing a bit below the line width gives a solid
 area; larger spacing gives visible lines or lighter tones.
 

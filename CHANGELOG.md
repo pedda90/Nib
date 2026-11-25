@@ -3,7 +3,9 @@
 ## Unreleased
 - **Hatch fill:** filled shapes can be hatched or cross-hatched per layer, with adjustable spacing
   (on paper, independent of the scale) and angle, optionally with the outline. A test strip with
-  six spacings helps to find the right one for a pen. Preview and time estimate include it.
+  six spacings helps to find the right one for a pen; it loads like a drawing (also without a
+  file) and gives your file back when closed. Lines can be joined into zigzags or drawn one by
+  one. Preview and time estimate include it.
 - Refused API requests no longer make Windows reset the connection.
 
 ## 1.2.0 – 2026-11-25

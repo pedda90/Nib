@@ -530,7 +530,7 @@ function draw() {
   }
   ctx.globalAlpha = 1;
 
-  if (doc && !htAt) {
+  if (doc) {
     blitLayers(d);
     const place = makePlacer();
     drawMarker(place);
@@ -556,9 +556,6 @@ function draw() {
     ctx.strokeStyle = TC.bad; ctx.globalAlpha = .55; ctx.lineWidth = 1; ctx.setLineDash([2, 4]);
     ctx.strokeRect(ax, ay, (x1 - x0) * view.s, (y1 - y0) * view.s); ctx.setLineDash([]); ctx.globalAlpha = 1;
   }
-
-  // hatch test strip, where it will be plotted (only after "Show test strip"; the design is hidden then)
-  if (htAt && htPrev) drawHatchTest();
 
   // origin: corner mark at the sheet corner
   ctx.strokeStyle = TC.accent; ctx.lineWidth = 2; ctx.lineCap = "square"; ctx.beginPath();
@@ -845,10 +842,10 @@ $("#btnOpen").onclick = () => $("#file").click();
 $("#file").onchange = () => { if ($("#file").files[0]) uploadFile($("#file").files[0]); $("#file").value = ""; };
 const wrap = $("#canvasWrap");
 window.addEventListener("dragover", (e) => { e.preventDefault(); $("#drop").classList.remove("hidden"); $("#drop").classList.add("active"); });
-window.addEventListener("dragleave", (e) => { if (e.relatedTarget === null) { $("#drop").classList.remove("active"); dropHint(); } });
+window.addEventListener("dragleave", (e) => { if (e.relatedTarget === null) { $("#drop").classList.remove("active"); if (doc) $("#drop").classList.add("hidden"); } });
 window.addEventListener("drop", (e) => {
   e.preventDefault(); $("#drop").classList.remove("active");
-  dropHint();
+  if (doc) $("#drop").classList.add("hidden");
   const f = e.dataTransfer.files[0];
   if (f) uploadFile(f);
 });
@@ -927,7 +924,7 @@ function setDoc(j, resetPlacement) {
   $("#warnings").title = doc.warnings.join("\n");
   $("#warnings").onclick = () => doc.warnings.forEach((w) => logLocal("warn", w));
   updatePlaceInputs(); renderLayers(); renderResume(); scheduleDraw();
-  fillScaleChanged();
+  fillScaleChanged(); hatchTestRefresh();
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -1042,9 +1039,9 @@ function fillRow(l) {
       <label class="chk"><input type="checkbox" class="fol" ${f.outline ? "checked" : ""}> Trace the outline too</label>
       <label class="chk" title="On: neighbouring lines are joined into zigzags (far fewer pen lifts, faster). Off: every line is drawn on its own with the pen lifted in between – cleaner line ends, slower."><input type="checkbox" class="fjo" ${f.join ? "checked" : ""}> Connect lines</label>
       <div class="ftest"><span>Test strip</span>
-        <button class="quiet fplot" title="Shows the test strip with this layer's angle and settings on the sheet (Hatch test section on the left), ready to plot"><svg class="ic"><use href="#i-hatch"/></svg>Show test</button></div>
+        <button class="quiet fplot" title="Loads the test strip as the drawing, with this layer's angle and settings (Hatch test section on the left). Close it there to get your file back."><svg class="ic"><use href="#i-hatch"/></svg>Load test</button></div>
       <div class="seg fpick">${TEST_SPACINGS.map((v) => `<button data-v="${v}" class="${Math.abs(v - f.spacing) < 1e-6 ? "on" : ""}" title="Use the spacing of this test square">${v.toFixed(1)}</button>`).join("")}</div>
-      <p class="hint">Show the test strip, plot it on spare paper, then pick the square that looks right. Spacing is measured on paper, whatever the scale.</p>
+      <p class="hint">Load the test strip, plot it on spare paper, then pick the square that looks right. Spacing is measured on paper, whatever the scale.</p>
     </div>` : ""}`;
   box.querySelector(".filltog").onclick = () => { if (open) fillOpen.delete(l.key); else fillOpen.add(l.key); renderLayers(); };
   if (!open) return box;
@@ -1066,97 +1063,83 @@ function fillRow(l) {
   return box;
 }
 
-/* Hatch test strip. "Show test strip" puts it on the sheet at the pen position of that moment
-   and hides the design; it stays there (the pen moving doesn't move it) and is plotted exactly
-   there. Settings changes update it live. */
-let htPrev = null;          // {size: [w, h], paths: [[x0, y0, x1, y1, …], …]} relative to the corner
-let htAt = null;            // [x, y] on the sheet while the strip is shown, otherwise null
-let closeHatchTest = () => {};
+// "Hatch test" section on the left. "Load test strip" loads the strip as the drawing, exactly
+// like opening an SVG (move it with the mouse, place it, plot it with Plot). The file that was
+// loaded before is set aside on the server and comes back with "Close test strip".
 let hatchTestUse = () => {};
-// "Drop an SVG here" only while there's nothing else on the sheet
-function dropHint() { $("#drop").classList.toggle("hidden", !!doc || !!htAt); }
-
-function plotHatchTest(opts, at) {
-  if (!connected()) { logLocal("err", "Connect the plotter first."); return; }
-  if (jobActive()) { logLocal("err", "Not possible while plotting."); return; }
-  if (!confirm(`Plot the hatch test strip?\n\nIt is drawn where the preview shows it (X ${at[0].toFixed(1)} / Y ${at[1].toFixed(1)} mm, about 140 × 26 mm), with the current pen heights and speeds. Use spare paper.`)) return;
-  api("/api/hatch_test", { ...opts, x: at[0], y: at[1] });
-}
-
-// "Hatch test" section on the left (its settings are remembered per browser)
+let hatchTestRefresh = () => {};
 (function hatchTestPanel() {
   let ht = { mode: "hatch", angle: 45, join: true };
   try { ht = { ...ht, ...(JSON.parse(localStorage.getItem("hatchTest")) || {}) }; } catch (e) { /* ignore */ }
   const save = () => { try { localStorage.setItem("hatchTest", JSON.stringify(ht)); } catch (e) { /* ignore */ } };
-  const penPos = () => (connected() ? machineToPaper(st.wpos[0], st.wpos[1]) : [0, 0]);
   const icon = '<svg class="ic"><use href="#i-hatch"/></svg>';
+  const loaded = () => !!(doc && doc.test);
+  let before = null;                  // placement of the file that was loaded before
   const show = () => {
     $$("#htMode button").forEach((b) => b.classList.toggle("on", b.dataset.m === ht.mode));
     $("#htAngle").value = ht.angle; $("#htJoin").checked = ht.join;
-    $("#btnHatchShow").innerHTML = `${icon}${htAt ? "Hide test strip" : "Show test strip"}`;
-    $("#btnHatchMove").hidden = !htAt;
-    $("#htWhere").textContent = htAt
-      ? `Shown at X ${htAt[0].toFixed(1)} / Y ${htAt[1].toFixed(1)} mm – the design is hidden meanwhile.` : "";
+    $("#btnHatchLoad").innerHTML = `${icon}${loaded() ? "Close test strip" : "Load test strip"}`;
+    $("#btnHatchLoad").classList.toggle("accent", loaded());
+    $("#htWhere").textContent = loaded()
+      ? "The test strip is loaded like a drawing: move it with the mouse or under Placement, then click Plot. Changes here update it."
+      : "";
   };
-  const fetchPrev = () => {
-    if (!htAt) return;
-    const q = `angle=${ht.angle}&mode=${ht.mode}&join=${ht.join}`;
-    api(`/api/hatch_test_preview?${q}`).then((j) => { if (j && j.paths) { htPrev = j; scheduleDraw(); } });
+  hatchTestRefresh = show;
+  let seq = 0;
+  const load = async () => {
+    if (jobActive()) { logLocal("err", "Not possible while plotting."); return; }
+    const first = !loaded(), my = ++seq;
+    if (first) before = doc ? { ...S.place } : null;
+    const j = await api("/api/hatch_test/load", { ...ht });
+    if (my !== seq || !j.doc) return;
+    if (first) {
+      setDoc(j, true);
+      // put it at the pen (like a file you then move where you want it)
+      const [x, y] = connected() ? machineToPaper(st.wpos[0], st.wpos[1]) : [10, 10];
+      S.place = { x, y, scale: 1, rotate: 0 };
+      placeChanged();
+    } else setDoc(j, false);
+    show();
   };
-  const place = (at) => { htAt = at; show(); fetchPrev(); dropHint(); scheduleDraw(); };
-  closeHatchTest = () => { htAt = null; show(); dropHint(); scheduleDraw(); };
-  hatchTestUse = (opts) => {               // from a layer's Fill settings: same angle and options
-    ht = { ...ht, ...opts, mode: opts.mode === "cross" ? "cross" : "hatch" }; save();
-    const sec = $("#secHatch");
-    if (sec.classList.contains("closed")) sec.querySelector("h2").click();
-    place(htAt || penPos());
-    sec.scrollIntoView({ block: "nearest" });
+  const close = async () => {
+    if (jobActive()) { logLocal("err", "Not possible while plotting."); return; }
+    ++seq;
+    const j = await api("/api/hatch_test/close", {});
+    if (j.doc) {
+      setDoc(j, false);
+      if (before) { S.place = before; placeChanged(); }
+    } else if (!j.error) {
+      doc = null; order = []; resumeInfo = null;
+      $("#docInfo").textContent = "No file loaded"; $("#docInfo").title = "";
+      $("#drop").classList.remove("hidden");
+      updatePlaceInputs(); renderLayers(); renderResume(); scheduleDraw();
+    }
+    before = null; show();
   };
-  $$("#htMode button").forEach((b) => (b.onclick = () => { ht.mode = b.dataset.m; save(); show(); fetchPrev(); }));
+  let tm = null;
+  const changed = (delay = 0) => { save(); show(); clearTimeout(tm); if (loaded()) tm = setTimeout(load, delay); };
+  $$("#htMode button").forEach((b) => (b.onclick = () => { ht.mode = b.dataset.m; changed(); }));
   $("#htAngle").onchange = () => {
     const v = parseFloat($("#htAngle").value);
     if (!isNaN(v)) ht.angle = Math.min(179, Math.max(0, v));
-    save(); show(); fetchPrev();
+    changed();
   };
   $("#htAngle").oninput = () => {                 // live while typing or using the arrows
     const v = parseFloat($("#htAngle").value);
-    if (!isNaN(v) && v >= 0 && v <= 179) { ht.angle = v; save(); fetchPrev(); }
+    if (!isNaN(v) && v >= 0 && v <= 179) { ht.angle = v; changed(250); }
   };
-  $("#htJoin").onchange = () => { ht.join = $("#htJoin").checked; save(); fetchPrev(); };
-  $("#btnHatchShow").onclick = () => (htAt ? closeHatchTest() : place(penPos()));
-  $("#btnHatchMove").onclick = () => place(penPos());
-  $("#btnHatchTest").onclick = () => {
-    if (htAt) { plotHatchTest({ ...ht }, htAt); return; }
-    place(penPos());                              // show it first, then ask
-    setTimeout(() => plotHatchTest({ ...ht }, htAt), 400);
+  $("#htJoin").onchange = () => { ht.join = $("#htJoin").checked; changed(); };
+  $("#btnHatchLoad").onclick = () => (loaded() ? close() : load());
+  hatchTestUse = (opts) => {               // from a layer's Fill settings: same angle and options
+    ht = { ...ht, ...opts, mode: opts.mode === "cross" ? "cross" : "hatch" };
+    const sec = $("#secHatch");
+    if (sec.classList.contains("closed")) sec.querySelector("h2").click();
+    sec.scrollIntoView({ block: "nearest" });
+    save(); show(); load();
   };
   show();
 })();
 
-function drawHatchTest() {
-  const [ox, oy] = htAt;
-  const [w, h] = htPrev.size;
-  const [x0, y0, x1, y1] = area();
-  const fits = !S.machine.limits_on || (ox >= x0 - 0.01 && oy >= y0 - 0.01 && ox + w <= x1 + 0.01 && oy + h <= y1 + 0.01);
-  ctx.save();
-  ctx.strokeStyle = "#2a2622"; ctx.globalAlpha = fits ? 0.85 : 0.35;
-  ctx.lineWidth = Math.max(0.6, inkView.penW * view.s); ctx.lineCap = "round"; ctx.lineJoin = "round";
-  ctx.beginPath();
-  for (const p of htPrev.paths) {
-    for (let i = 0; i < p.length; i += 2) {
-      const [sx, sy] = toScreen(ox + p[i], oy + p[i + 1]);
-      if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
-    }
-  }
-  ctx.stroke();
-  const [bx, by] = toScreen(ox - 2, oy - 2);
-  ctx.globalAlpha = 1; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
-  ctx.strokeStyle = fits ? TC.accent : TC.bad;
-  ctx.strokeRect(Math.round(bx) + .5, Math.round(by) + .5, (w + 4) * view.s, (h + 4) * view.s); ctx.setLineDash([]);
-  ctx.fillStyle = fits ? TC.accent : TC.bad; ctx.font = "500 12px 'Plex Sans', sans-serif";
-  ctx.fillText(fits ? "Hatch test strip – plotted here" : "Hatch test strip doesn't fit here – jog the pen and click “Move to pen”", bx, by - 7);
-  ctx.restore();
-}
 
 /* Visible paths of every layer = all paths (in plot order) minus hidden sublayers.
    The server sends each layer's paths once with their sublayer, so showing/hiding a
@@ -1203,7 +1186,6 @@ async function startPlot(layerIds, startLayer, startPath, reverse) {
   if (!connected()) { logLocal("err", "Connect the plotter first."); return; }
   if (!doc) { logLocal("err", "Load a file first."); return; }
   await hideSync;          // the server must know the current sublayer selection
-  if (htAt) closeHatchTest();
   layerIds = layerIds.filter((id) => (doc.layers.find((l) => l.id === id) || {}).count);
   if (!layerIds.length) { logLocal("err", "No layer selected."); return; }
   if (!(st && st.zero_set) && !confirm("Is the origin set?\n\nThe pen should sit at the top-left corner of the sheet, and “Set origin” should have been pressed there.\n\nStart anyway?")) return;

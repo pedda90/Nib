@@ -219,6 +219,8 @@ class App:
         self._opt_cache = {}      # (mode, layer, options) -> [(sublayer, path)], all sublayers together
         self._all_cache = {}      # id(tagged) -> (tagged, rounded flat paths) for the JSON reply
         self._hatch_cache = {}    # (fill index, spacing, angle, cross) -> hatch lines
+        self.is_test = False      # the hatch test strip is loaded instead of a file
+        self._stash = None        # the file that was loaded before the test strip
         self._last_save = 0.0
 
     def _fw_received(self, fw):
@@ -242,9 +244,12 @@ class App:
             self.machine._log("warn", "Capped at firmware maximum: " + ", ".join(changed))
 
     # ------------------------------------------------------------ document
-    def upload(self, name, data: bytes):
+    def upload(self, name, data: bytes, test=False):
         res = load_svg(io.BytesIO(data), float(self.settings["optimize"]["curve_step"]))
         with self.doc_lock:
+            if not test:
+                self._stash = None           # a new file replaces whatever was set aside
+            self.is_test = test
             self.raw = res
             self.file_name = name
             self.file_hash = hashlib.sha1(data).hexdigest()
@@ -384,7 +389,7 @@ class App:
         hidden_now = sorted(h for h in self.hidden if any(
             f"{l['id']}/{s['name']}" == h for l in layers for s in l["subs"]))
         with self.doc_lock:
-            self.doc = {"name": self.file_name, "hash": self.file_hash, "bbox": bbox,
+            self.doc = {"name": self.file_name, "hash": self.file_hash, "bbox": bbox, "test": self.is_test,
                         "layers": layers, "mode": mode, "warnings": list(self.raw.warnings),
                         "opts": copy.deepcopy(opts) | ({"hidden": hidden_now} if hidden_now else {}),
                         "hidden": hidden_now,
@@ -425,6 +430,31 @@ class App:
             self._all_cache.clear()
         self._all_cache[id(tagged)] = (tagged, out)
         return out
+
+    def load_hatch_test(self, b):
+        """Load the hatch test strip as the drawing, like opening an SVG. The file loaded
+        before is set aside and comes back with close_hatch_test()."""
+        angle, cross, join = hatch_test_options(b)
+        if not self.is_test and self.raw is not None:
+            self._stash = (self.raw, self.file_name, self.file_hash, set(self.hidden), self._bbox)
+        name = (f"Hatch test strip – {'cross' if cross else 'hatch'} {angle:g}°"
+                + ("" if join else ", single lines"))
+        return self.upload(name, H.test_strip_svg(angle, cross, join).encode(), test=True)
+
+    def close_hatch_test(self):
+        """Back to the file that was loaded before the test strip (or to no file)."""
+        if not self.is_test:
+            return self.doc_json()
+        with self.doc_lock:
+            self.is_test = False
+            self._opt_cache, self._all_cache, self._hatch_cache = {}, {}, {}
+            if self._stash is None:
+                self.raw = self.doc = None
+                self.file_name = self.file_hash = ""
+                return {"doc": None}
+            self.raw, self.file_name, self.file_hash, self.hidden, self._bbox = self._stash
+            self._stash = None
+        return self.process(self.settings["optimize"])
 
     # ---------------------------------------------------------- settings
     def save_settings(self):
@@ -696,12 +726,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(DEFAULTS)
             if path == "/api/doc":
                 return self._json(APP.doc_json())
-            if path == "/api/hatch_test_preview":
-                q = {k: v[0] for k, v in parse_qs(url.query).items()}
-                angle, cross, join = hatch_test_options(q)
-                paths = H.test_strip(0, 0, angle, cross, join=join)
-                return self._json({"size": list(H.test_strip_size()),
-                                   "paths": [[round(c, 3) for pt in p for c in pt] for p in paths]})
             return self._static(path)
         except Exception as e:
             traceback.print_exc()
@@ -767,6 +791,14 @@ class Handler(BaseHTTPRequestHandler):
             return APP.settings
         if path == "/api/process":
             return APP.process(b, b.get("hidden"), light=bool(b.get("light")))
+        if path == "/api/hatch_test/load":
+            if busy:
+                return {"error": "Not possible while plotting"}
+            return APP.load_hatch_test(b)
+        if path == "/api/hatch_test/close":
+            if busy:
+                return {"error": "Not possible while plotting"}
+            return APP.close_hatch_test()
         if path == "/api/connect":
             S["connection"] = {"port": b["port"], "baud": int(b.get("baud", 115200))}
             APP.save_settings()
@@ -901,8 +933,6 @@ class Handler(BaseHTTPRequestHandler):
             M.queue_lines(G.frame_gcode(APP.doc["bbox"], place, mset), None)
             M._log("info", "Tracing the frame (pen up)")
             return {"ok": True}
-        if path == "/api/hatch_test":
-            return hatch_test(b, mset, M)
         return {"error": f"Unknown command {path}"}
 
 
@@ -914,37 +944,6 @@ def hatch_test_options(b):
         angle = 45.0
     join = b.get("join", True)
     return angle, b.get("mode") == "cross", join not in (False, "false", "0")
-
-
-def hatch_test(b, m, machine):
-    """Plot the hatch test strip with its top-left corner at (x, y) on the sheet – where the
-    preview shows it – or at the current pen position: one square per spacing, with the
-    current pen heights and speeds."""
-    angle, cross, join = hatch_test_options(b)
-    try:
-        x, y = float(b["x"]), float(b["y"])
-    except (KeyError, TypeError, ValueError):
-        wx, wy = machine.status()["wpos"][:2]
-        x, y = G.from_machine(wx, wy, m)
-    w, h = H.test_strip_size()
-    if m.get("limits_on", True):
-        ax0, ay0, ax1, ay1 = allowed_area(m, machine)
-        if x < ax0 - 0.01 or y < ay0 - 0.01 or x + w > ax1 + 0.01 or y + h > ay1 + 0.01:
-            return {"error": f"The test strip ({w:.0f} × {h:.0f} mm) doesn't fit at X {x:.1f} / Y {y:.1f}. "
-                             f"Jog the pen to a free spot and click “Move to pen”."}
-    err = machine.z_check(m["z_up"]) or machine.z_check(m["z_down"])
-    if err:
-        return {"error": err}
-    gb = G.GcodeBuilder(m)
-    gb.header()
-    gb.layer(0, H.test_strip(x, y, angle, cross, join=join), lambda px, py: (px, py))
-    gb.pen_up()
-    sx, sy = G.to_machine(x, y, m)
-    gb.emit(f"G1 X{G._fmt(sx)} Y{G._fmt(sy)} F{int(m['feed_travel'])}")   # back to where it started
-    machine.queue_lines([line for line, _ in gb.lines], None)
-    machine._log("info", f"Plotting the hatch test strip ({w:.0f} × {h:.0f} mm): spacings "
-                         + ", ".join(f"{s:g}" for s in H.TEST_SPACINGS) + " mm")
-    return {"ok": True, "spacings": list(H.TEST_SPACINGS)}
 
 
 def _job_busy():

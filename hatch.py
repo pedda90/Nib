@@ -190,3 +190,13 @@ def test_strip(x, y, angle=45.0, cross=False, size=TEST_SIZE, gap=TEST_GAP, spac
 def test_strip_size(n=len(TEST_SPACINGS), size=TEST_SIZE, gap=TEST_GAP):
     """(width, height) of the test strip in mm."""
     return n * size + (n - 1) * gap, size + 2 + TEST_LABEL
+
+
+def test_strip_svg(angle=45.0, cross=False, join=True):
+    """The test strip as an SVG file (mm, black lines), so it can be loaded like any drawing."""
+    w, h = test_strip_size()
+    paths = test_strip(0, 0, angle, cross, join=join)
+    d = " ".join("M" + " L".join(f"{x:.3f},{y:.3f}" for x, y in p) for p in paths)
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:g}mm" height="{h:g}mm" '
+            f'viewBox="0 0 {w:g} {h:g}">\n'
+            f'  <path d="{d}" fill="none" stroke="#000000" stroke-width="0.3"/>\n</svg>\n')

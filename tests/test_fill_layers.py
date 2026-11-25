@@ -111,3 +111,35 @@ def test_bad_fill_values_fall_back():
     assert c["mode"] == "off" and c["spacing"] == S.FILL_DEFAULT["spacing"]
     assert S.fill_config({"fill": {"k": {"spacing": 0}}}, "k")["spacing"] == 0.05
     assert S.fill_config({"fill": {"k": {"angle": 200}}}, "k")["angle"] == 20
+
+
+def test_hatch_test_strip_loads_like_a_file_and_gives_the_file_back(app):
+    before = (app.doc["name"], [l["key"] for l in app.doc["layers"]])
+    r = app.load_hatch_test({"angle": 30, "mode": "cross", "join": False})
+    d = r["doc"]
+    assert d["test"] is True and d["name"].startswith("Hatch test strip – cross 30°")
+    assert [l["key"] for l in d["layers"]] == ["#000000"]
+    w, h = S.H.test_strip_size()
+    assert d["bbox"][2] - d["bbox"][0] == pytest.approx(w, abs=0.5)
+    single = d["layers"][0]["count"]
+    # changing the settings reloads the strip; the file stays set aside
+    d = app.load_hatch_test({"angle": 30, "mode": "cross", "join": True})["doc"]
+    assert d["layers"][0]["count"] < single
+    d = app.close_hatch_test()["doc"]
+    assert d["test"] is False
+    assert (d["name"], [l["key"] for l in d["layers"]]) == before
+
+
+def test_closing_the_test_strip_without_a_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(S, "SETTINGS_FILE", str(tmp_path / "settings.json"))
+    monkeypatch.setattr(S, "JOBSTATE_FILE", str(tmp_path / "job_state.json"))
+    a = S.App()
+    assert a.load_hatch_test({})["doc"]["test"] is True
+    assert a.close_hatch_test() == {"doc": None}
+
+
+def test_a_new_file_replaces_the_set_aside_one(app):
+    app.load_hatch_test({})
+    app.upload("other.svg", SVG)               # opening a file while the strip is loaded
+    assert app.doc["test"] is False and app.doc["name"] == "other.svg"
+    assert app.close_hatch_test()["doc"]["name"] == "other.svg"   # nothing to go back to
