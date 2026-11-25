@@ -1,0 +1,93 @@
+# Builds Nib.exe (Windows) and Nib.app (macOS, Apple Silicon) and publishes a GitHub release.
+# Start it by pushing a tag that matches VERSION in server.py:
+#   git tag v1.2.0 && git push origin v1.2.0
+# The release text is taken from the matching section of CHANGELOG.md.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  windows:
+    needs: tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Check that the tag matches VERSION
+        shell: bash
+        run: python .github/release_notes.py "$GITHUB_REF_NAME" --check
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt pyinstaller
+      - name: Build Nib.exe (same options as build_exe.bat)
+        run: |
+          python version_info.py build\version_info.txt
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --log-level WARN `
+            --name Nib --icon "$PWD\icon.ico" --version-file "$PWD\build\version_info.txt" `
+            --add-data "$PWD\web;web" `
+            --exclude-module mockgrbl_tests --exclude-module tkinter `
+            --distpath dist --workpath build --specpath build `
+            app.py
+          Compress-Archive -Path dist\Nib.exe -DestinationPath "Nib-$env:GITHUB_REF_NAME-windows.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: Nib-*-windows.zip
+
+  macos:
+    needs: tests
+    runs-on: macos-14            # Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python .github/release_notes.py "$GITHUB_REF_NAME" --check
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt pyinstaller pillow
+      - name: Build Nib.app (same steps as build_app.command)
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --log-level WARN \
+            --name Nib --icon "$PWD/icon.ico" \
+            --add-data "$PWD/web:web" \
+            --exclude-module mockgrbl_tests --exclude-module tkinter \
+            --distpath dist --workpath build/mac --specpath build/mac \
+            app.py
+          VERSION="$(sed -n 's/^VERSION = "\([^"]*\)".*/\1/p' server.py)"
+          PLIST="dist/Nib.app/Contents/Info.plist"
+          plist() { /usr/libexec/PlistBuddy -c "Set :$1 $2" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :$1 string $2" "$PLIST"; }
+          plist CFBundleIdentifier io.github.pedda90.nib
+          plist CFBundleShortVersionString "$VERSION"
+          plist CFBundleVersion "$VERSION"
+          codesign --force --deep --sign - dist/Nib.app
+          # ditto keeps the symlinks and the signature inside the app bundle
+          ditto -c -k --keepParent dist/Nib.app "Nib-$GITHUB_REF_NAME-macos.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: Nib-*-macos.zip
+
+  release:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/release_notes.py "$GITHUB_REF_NAME" > notes.md
+          gh release create "$GITHUB_REF_NAME" Nib-*-windows.zip Nib-*-macos.zip \
+            --title "Nib ${GITHUB_REF_NAME#v}" --notes-file notes.md --verify-tag

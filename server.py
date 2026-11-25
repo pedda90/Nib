@@ -27,7 +27,7 @@ import optimize as O
 from grbl import Job, Machine, list_ports
 from svgload import load_svg
 
-VERSION = "1.1.0"   # shown in Nib.app's "Get Info"; bump for every release
+VERSION = "1.2.0"   # shown in Nib.app's "Get Info"; bump for every release
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, "frozen", False):

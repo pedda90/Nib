@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 – 2026-11-25
 - **Security:** the local API only answers Nib's own page. Other web sites open in the browser
   can no longer control the plotter (per-start access token, Host/Origin check, JSON-only POSTs,
   no framing). A tab left open from an earlier start reloads itself to get the new token.
@@ -11,7 +11,8 @@
   (acknowledgements were taken as lost during the pause, which could overflow the controller's
   receive buffer).
 - The simulator handles `G4` like the real controller. Automated tests in `tests/`
-  (`python -m pytest tests`).
+  (`python -m pytest tests`), run by GitHub Actions on every push; `Nib.exe` and `Nib.app` for
+  releases are now built there too.
 
 ## 1.1.0 – 2026-11-24
 - **macOS:** Nib now runs on macOS as a native app (`Nib.app`, Apple Silicon), tested with the
