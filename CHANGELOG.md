@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Colour layers whose name already contains the colour code (e.g. “1 Yellow (#f5d000)” from Linedraw) don't show it twice.
+
 ## 1.3.1 – 2026-11-25
 A small fix for 1.3.0.
 

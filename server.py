@@ -201,6 +201,8 @@ def _color_name(hexcol, names):
         label = top[0][0]
         if len(top) > 1:
             label += f" +{len(top) - 1}"
+        if hexcol.lower() in label.lower():        # e.g. "1 Yellow (#f5d000)" – don't repeat it
+            return label
         return f"{label}  {hexcol}"
     return f"Color {hexcol}"
 

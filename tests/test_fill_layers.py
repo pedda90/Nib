@@ -143,3 +143,8 @@ def test_a_new_file_replaces_the_set_aside_one(app):
     app.upload("other.svg", SVG)               # opening a file while the strip is loaded
     assert app.doc["test"] is False and app.doc["name"] == "other.svg"
     assert app.close_hatch_test()["doc"]["name"] == "other.svg"   # nothing to go back to
+
+
+def test_colour_layer_name_doesnt_repeat_the_colour():
+    assert S._color_name("#f5d000", {"1 Gelb (#f5d000)": 3}) == "1 Gelb (#f5d000)"
+    assert S._color_name("#f5d000", {"Hatch": 3}) == "Hatch  #f5d000"
