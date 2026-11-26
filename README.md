@@ -5,12 +5,12 @@ Runs on Windows and macOS. Light and dark theme (follows the system, or switch w
 
 **Every control and setting explained: [USAGE.md](USAGE.md)** · What's new: [CHANGELOG.md](CHANGELOG.md)
 
-![Nib in dark mode with a four-colour CMYK hatching portrait placed on A4, ready to plot](docs/screenshot-dark.png)
+![Nib in dark mode with a four-colour CMYK hatching portrait placed on A4, ready to plot](docs/nib-dark.png)
 
 <details>
 <summary>Light mode</summary>
 
-![Nib in light mode](docs/screenshot-light.png)
+![Nib in light mode](docs/nib-light.png)
 
 </details>
 
