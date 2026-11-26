@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.3.2 – 2026-11-26
+Nib now remembers the settings of every file, so a half-finished drawing continues where it left off.
+
 - **Settings per file:** Nib remembers placement, optimization and hatch settings, hidden
   sublayers, layer order and ticks, and the plot direction of every file. Loading it again – even
   much later – brings them back. Layers that were plotted to the end get a ✓ and are unticked
