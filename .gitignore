@@ -6,6 +6,7 @@ __pycache__/
 # personal settings / runtime data
 settings.json
 job_state.json
+file_memory.json
 webview_data/
 # old name of webview_data/ (app.py keeps using it if it can't be renamed)
 fensterdaten/

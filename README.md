@@ -66,7 +66,8 @@ Z axis). Other GRBL/FluidNC plotters that lift the pen with a Z axis may work bu
 Double-click **`Nib.exe`** (Windows) or **Nib.app** (macOS). Nib opens in its own window – no browser needed.
 **Quitting:** close the window. If a plot is running (also paused or waiting for a pen change),
 Nib asks first. Answering “Yes” aborts the plot and remembers the position so you can resume later.
-Settings (`settings.json`) and the resume point (`job_state.json`) are stored next to the exe
+Settings (`settings.json`), the resume point (`job_state.json`) and the settings per file
+(`file_memory.json`) are stored next to the exe
 (macOS: in `~/Library/Application Support/Nib`).
 
 **Rebuilding the app** (after changing the code): double-click **`build_exe.bat`** (Windows) or
@@ -106,6 +107,8 @@ For development, `server.py --keep-running` turns that off.
 - Pause/resume (also with the space bar), stop without losing the origin,
   **resume after an abort** (even after restarting the program) or start from any path.
 - **Plot in reverse** (end to start) and pick the start point by clicking in the preview.
+- **Settings per file:** placement, layers and hatching come back when you load a file again,
+  even a year later; colours already plotted are marked, so a half-finished drawing simply continues.
 - Work-area limits measured from the power-on corner; speeds capped at the firmware maximum.
 - Manual jogging, adjustable speeds, console for G-code and `$` commands.
 - “SIMULATOR” port for trying things out without a plotter.
@@ -143,4 +146,4 @@ The fine print is in [LICENSE.md](LICENSE.md) (PolyForm Noncommercial 1.0.0).
 | `build_exe.bat`, `Start Nib.bat` | Build / start on Windows (`version_info.py` adds the version to the exe) |
 | `build_app.command`, `Start Nib.command` | Build / start on macOS |
 | `web/` | User interface (fonts: IBM Plex, SIL Open Font License, see `web/fonts/`) |
-| `settings.json`, `job_state.json` | Saved settings and resume point (created automatically) |
+| `settings.json`, `job_state.json`, `file_memory.json` | Saved settings, resume point and settings per file (created automatically) |

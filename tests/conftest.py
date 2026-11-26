@@ -30,3 +30,12 @@ def machine(monkeypatch):
     assert wait(lambda: m.idle_and_empty(), 5), "simulator did not settle after connecting"
     yield m, mock
     m.disconnect()
+
+
+@pytest.fixture(autouse=True)
+def _private_data_files(tmp_path, monkeypatch):
+    """No test writes Nib's real settings, resume point or file memory."""
+    import server
+    monkeypatch.setattr(server, "SETTINGS_FILE", str(tmp_path / "settings.json"))
+    monkeypatch.setattr(server, "JOBSTATE_FILE", str(tmp_path / "job_state.json"))
+    monkeypatch.setattr(server, "MEMORY_FILE", str(tmp_path / "file_memory.json"))

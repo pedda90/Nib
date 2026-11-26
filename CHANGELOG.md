@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- **Settings per file:** Nib remembers placement, optimization and hatch settings, hidden
+  sublayers, layer order and ticks, and the plot direction of every file. Loading it again – even
+  much later – brings them back. Layers that were plotted to the end get a ✓ and are unticked
+  then, so a half-finished drawing continues with the next colour; **Plot everything again**
+  starts over. Stored in `file_memory.json`.
 - New README screenshots: a four-colour CMYK portrait (56,000 lines) placed on A4.
 - Colour layers whose name already contains the colour code (e.g. “1 Yellow (#f5d000)” from Linedraw) don't show it twice.
 

@@ -185,6 +185,27 @@ including pen changes and pauses, and a table per pen (line length, lines, time)
 is measured when the plot pauses between layers. **Summary of the last plot** under *Plot* opens it
 again.
 
+### Settings per file
+
+Nib remembers everything that belongs to a file: placement (position, size, rotation),
+optimization and hatch settings, hidden sublayers, the order and ticks of the layers, the plot
+direction, and which layers were plotted to the end. Load the same SVG again – after switching
+the computer off, after other files, or a year later – and it all comes back. A box above the
+layer list says so.
+
+- **Half-finished drawings:** layers that were plotted to the end get a **✓** (hover it for the
+  date). When the file is loaded again, they are unticked and the rest is ticked, so **Plot**
+  carries on with the next colour. Put the sheet back and set the origin at the same corner as before.
+- **Plotting it again** on a new sheet: **Plot everything again** in that box clears the ✓ marks
+  and ticks all layers.
+- A file that was **changed since** (e.g. exported again) is recognised by its name: its settings
+  come back, the ✓ marks don't.
+- Speed, pen heights and the machine settings are not per file – they stay as you last set them.
+- An interrupted plot can still be resumed in the middle of a layer with **Show & resume here** (see above).
+
+The settings are stored in `file_memory.json` next to `Nib.exe` (macOS: in
+`~/Library/Application Support/Nib`), for up to 1000 files.
+
 **Notifications:** with “Notify when done or at a pen change” (under *Layers*, on by default) Nib
 shows a system notification and plays a short sound when the plot ends or the next pen is due –
 handy when Nib is in the background or you're in another room.

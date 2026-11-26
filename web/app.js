@@ -9,6 +9,7 @@ let st = null;           // last machine status
 let job = null;          // last job status
 let logSeq = 0;
 let resumeInfo = null;
+let doneMarks = {};      // {layer key: date} – layers of this file that were plotted to the end
 let startSel = null;     // {id, path} – start point (original path index)
 let pickMode = false;
 let jogStep = 10;
@@ -102,6 +103,7 @@ function saveSettings(partial) {
   clearTimeout(saveTimer);
   pendingSave = deepMerge(pendingSave, partial);
   saveTimer = setTimeout(() => { api("/api/settings", pendingSave); pendingSave = {}; }, 300);
+  remember();
 }
 let pendingSave = {};
 const stable = (o) => JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k]]));
@@ -952,11 +954,22 @@ function setDoc(j, resetPlacement) {
   const ids = doc.layers.map((l) => l.id);
   if (!resetPlacement && prevOrder.length && prevOrder.every((o) => ids.includes(o.id)) && prevOrder.length === ids.length) order = prevOrder;
   else order = ids.map((id) => ({ id, on: true }));
-  if (resumeInfo) {
+  if (resetPlacement) lastMemory = "";
+  const mem = resetPlacement && !doc.test ? j.memory : null;
+  if (mem && mem.place) {
+    S.place = mem.place;
+  } else if (resumeInfo) {
     S.place = resumeInfo.place;
   } else if (resetPlacement) {
     // take the position from the file (Illustrator artboard = sheet)
     S.place = { x: doc.bbox[0], y: doc.bbox[1], scale: 1, rotate: 0 };
+  }
+  if (resetPlacement) {
+    doneMarks = mem ? mem.done || {} : {};
+    if (mem) applyMemory(mem); else $("#memoryBox").hidden = true;
+  } else if (j.memory && j.memory.quiet && !doc.test) {
+    // back from the hatch test strip: the file's layer order and ticks
+    lastMemory = ""; doneMarks = j.memory.done || {}; applyMemory(j.memory, true);
   }
   saveSettings({ place: S.place });
   $("#drop").classList.add("hidden");
@@ -996,7 +1009,7 @@ function renderLayers() {
     row.innerHTML = `<input type="checkbox" ${shown ? "checked" : ""} ${jobActive() && !inJob ? "disabled" : ""}
       title="${inJob ? "Show/hide in the preview (doesn't change the plot)" : "Plot this colour"}">
       <span class="sw" style="background:${l.color}"></span>
-      <span class="nm" title="${esc(l.name)}">${esc(l.name)}</span>
+      <span class="nm" title="${esc(l.name)}${doneMarks[l.key] ? ` – plotted on ${esc(doneMarks[l.key])}` : ""}">${doneMarks[l.key] ? '<span class="ok">✓</span>' : ""}${esc(l.name)}</span>
       <span class="meta">${fmtNum(l.count)} paths<br>${fmtNum(l.draw_len * S.place.scale / 1000, 1)} m</span>
       <span class="mv"><button title="Move up"><svg class="ic"><use href="#i-up"/></svg></button><button title="Move down"><svg class="ic"><use href="#i-down"/></svg></button></span>`;
     row.querySelector("input").onchange = (e) => {
@@ -1026,6 +1039,61 @@ function renderLayers() {
   sel.innerHTML = order.filter((o) => o.on).map((o, i) => `<option value="${i}">${i + 1}. ${esc(doc.layers.find((x) => x.id === o.id).name)}</option>`).join("");
   if (prev && +prev < sel.options.length) sel.value = prev;
   renderStartInfo();
+  remember();
+}
+
+// --------------------------------------------------------------- file memory
+/* The server keeps the settings of every file it has seen (file_memory.json). Loading a
+   file again restores them; layers that were already plotted to the end are unticked and
+   marked with ✓, so a half-finished drawing simply continues with the next colour. */
+let lastMemory = "", memTimer = null;
+function remember() {
+  if (!doc || doc.test || jobActive()) return;
+  const body = { place: S.place, reverse: isReverse(),
+    order: order.map((o) => ({ key: (doc.layers.find((l) => l.id === o.id) || {}).key, on: o.on })) };
+  const s = JSON.stringify(body);
+  if (s === lastMemory) return;
+  clearTimeout(memTimer);
+  memTimer = setTimeout(() => { lastMemory = s; api("/api/memory", body); }, 500);
+}
+function applyMemory(m, quiet) {
+  const byKey = new Map(doc.layers.map((l) => [l.key, l.id]));
+  if (Array.isArray(m.order)) {
+    const seen = new Set(), saved = [];
+    for (const o of m.order) {
+      const id = byKey.get(o.key);
+      if (id && !seen.has(id)) { seen.add(id); saved.push({ id, on: !!o.on }); }
+    }
+    order = saved.concat(order.filter((o) => !seen.has(o.id)));
+  }
+  if (quiet) return;
+  if (typeof m.reverse === "boolean" && S.job.reverse !== m.reverse) {
+    S.job.reverse = m.reverse; $("#chkReverse").checked = m.reverse; saveSettings({ job: { reverse: m.reverse } });
+  }
+  const name = (l) => esc(String(l.name).split("  ")[0]);
+  const done = doc.layers.filter((l) => doneMarks[l.key]);
+  const left = doc.layers.filter((l) => !doneMarks[l.key] && l.count);
+  // half finished: carry on with what's left (plotted layers off, the rest on)
+  if (done.length && left.length) for (const o of order) o.on = !done.some((l) => l.id === o.id);
+  let html = `<b>Settings restored</b> from your last session with this file (${esc(m.saved)}).`;
+  if (m.match === "name") html += "<br><small>The file has changed since then – check the placement and layers.</small>";
+  if (done.length && left.length) html += `<br>Already plotted: ${done.map(name).join(", ")} – unticked, so the plot continues with ${left.map(name).join(", ")}.`;
+  else if (done.length) html += `<br>All layers were plotted (${esc(done[0] ? doneMarks[done[0].key] : "")}).`;
+  if (done.length) html += `<button>Plot everything again</button>`;
+  const box = $("#memoryBox");
+  box.innerHTML = html + `<button class="x" title="Close">×</button>`;
+  box.hidden = false;
+  box.querySelector(".x").onclick = () => { box.hidden = true; };
+  const again = box.querySelector("button:not(.x)");
+  if (again) again.onclick = async () => {
+    await api("/api/memory", { clear_done: true });
+    doneMarks = {};
+    order.forEach((o) => { o.on = true; });
+    box.hidden = true;
+    renderLayers(); scheduleDraw();
+    logLocal("info", "Plot marks cleared – all layers are ticked again.");
+  };
+  logLocal("info", `Settings of “${doc.name}” restored (${m.saved}).`);
 }
 
 // --------------------------------------------------------------- hatch fill
@@ -1568,6 +1636,7 @@ async function poll() {
       S.machine = j.mset; bindSettings(); renderLayers();
     }
     applySpeedLimits(j.vmax);
+    if (j.done && doc && !doc.test && JSON.stringify(j.done) !== JSON.stringify(doneMarks)) { doneMarks = j.done; renderLayers(); }
     const prevActive = jobActive();
     job = j.job;
     j.log.forEach((e) => { addLog(e); logSeq = Math.max(logSeq, e.n); });

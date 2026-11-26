@@ -316,6 +316,10 @@ label.toggle { margin: 0; color: var(--muted); font-size: 12.5px; }
 .resume { background: var(--field); border-left: 3px solid var(--accent); padding: 9px 12px; border-radius: var(--radius); margin-bottom: 10px; line-height: 1.45; }
 .resume small { color: var(--muted); }
 .resume button { margin-top: 8px; width: 100%; }
+.memory { position: relative; padding-right: 30px; }
+.memory .x { position: absolute; top: 4px; right: 4px; margin: 0; width: 22px; height: 22px; padding: 0;
+  background: none; color: var(--muted); font-size: 15px; line-height: 1; }
+.layer .nm .ok { color: var(--accent); font-weight: 600; margin-right: 4px; }
 .startbox { margin-top: 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); }
 .startinfo { margin-bottom: 2px; line-height: 1.4; }
 .startinfo .k { color: var(--muted); }

@@ -46,6 +46,8 @@ else:
 WEB = os.path.join(RES, "web")
 SETTINGS_FILE = os.path.join(DATA, "settings.json")
 JOBSTATE_FILE = os.path.join(DATA, "job_state.json")
+MEMORY_FILE = os.path.join(DATA, "file_memory.json")   # settings per SVG file, see App._restore
+MEMORY_MAX = 1000                                     # files remembered (the oldest are dropped)
 PORT = 8765
 
 # Access token for the API. Any web page open in the user's browser can send requests to
@@ -225,6 +227,8 @@ class App:
         self.is_test = False      # the hatch test strip is loaded instead of a file
         self._stash = None        # the file that was loaded before the test strip
         self._last_save = 0.0
+        self._memory = None       # file_memory.json, loaded on first use
+        self.restored = None      # what upload() took from the memory, for the reply
 
     def _fw_received(self, fw):
         """Take the work area from the plotter firmware ($130/$131)."""
@@ -263,7 +267,11 @@ class App:
             xs = [x for pl in res.polylines for x, _ in pl.pts] or [0]
             ys = [y for pl in res.polylines for _, y in pl.pts] or [0]
             self._bbox = [min(xs), min(ys), max(xs), max(ys)]
-        return self.process(self.settings["optimize"])
+            self.restored = None if test else self._restore(name)
+        out = self.process(self.settings["optimize"])
+        if self.restored and isinstance(out, dict) and out.get("doc"):
+            out["memory"] = self.restored
+        return out
 
     def process(self, opts, hidden=None, light=False):
         """Lay out the document. light=True (used when only showing/hiding sublayers):
@@ -397,6 +405,7 @@ class App:
                         "opts": copy.deepcopy(opts) | ({"hidden": hidden_now} if hidden_now else {}),
                         "hidden": hidden_now,
                         "width_mm": self.raw.width_mm, "height_mm": self.raw.height_mm}
+        self.remember(optimize=copy.deepcopy(opts), hidden=hidden_now)
         return self.doc_json(time.time() - t0, light=light)
 
     def doc_json(self, took=0.0, light=False):
@@ -457,7 +466,102 @@ class App:
                 return {"doc": None}
             self.raw, self.file_name, self.file_hash, self.hidden, self._bbox = self._stash
             self._stash = None
-        return self.process(self.settings["optimize"])
+        return self.with_layer_memory(self.process(self.settings["optimize"]))
+
+    def with_layer_memory(self, out):
+        """Add the file's remembered layer order and ticks to a reply, for a page that shows a
+        file it already had (reloaded page, back from the test strip) – applied quietly."""
+        e = None if self.is_test else self._mem().get(self.file_hash)
+        if e and isinstance(out, dict) and out.get("doc"):
+            out["memory"] = {"quiet": True, "order": e.get("order"), "done": e.get("done") or {}}
+        return out
+
+    # ------------------------------------------------------ file memory
+    # Everything that belongs to one SVG file – placement, optimization and hatch settings,
+    # hidden sublayers, layer order and ticks, plot direction, and which layers were plotted –
+    # is kept per file (by content hash) in file_memory.json, with no expiry. Loading the file
+    # again, even a year later, brings all of it back. A file that was changed since (new
+    # export) is recognised by its name: its settings come back, its progress doesn't.
+    def _mem(self):
+        if self._memory is None:
+            m = load_json(MEMORY_FILE, {})
+            files = m.get("files") if isinstance(m, dict) else None
+            self._memory = files if isinstance(files, dict) else {}
+        return self._memory
+
+    def _mem_save(self):
+        files = self._mem()
+        if len(files) > MEMORY_MAX:
+            for h, _ in sorted(files.items(), key=lambda kv: kv[1].get("ts", 0))[:len(files) - MEMORY_MAX]:
+                del files[h]
+        try:
+            save_json(MEMORY_FILE, {"version": 1, "files": files})
+        except Exception:
+            traceback.print_exc()
+
+    def _restore(self, name):
+        """Take the remembered settings of a file that was just loaded (called by upload)."""
+        files = self._mem()
+        e, match = files.get(self.file_hash), "file"
+        if e is None:
+            same = [v for v in files.values() if v.get("name") == name]
+            if not same:
+                return None
+            e, match = copy.deepcopy(max(same, key=lambda v: v.get("ts", 0))), "name"
+            e.pop("done", None)                  # the drawing changed: earlier progress doesn't apply
+            e["ts"] = time.time()
+            files[self.file_hash] = e
+            self._mem_save()
+        if isinstance(e.get("optimize"), dict):
+            self.settings["optimize"] = deep_merge(self.settings["optimize"], e["optimize"])
+        self.hidden = set(e.get("hidden") or [])
+        return {"match": match, "saved": e.get("saved", ""), "place": e.get("place"),
+                "order": e.get("order"), "reverse": e.get("reverse"), "done": e.get("done") or {}}
+
+    def remember(self, **fields):
+        """Store settings of the loaded file (not of the hatch test strip)."""
+        if self.raw is None or self.is_test or not self.file_hash:
+            return
+        e = self._mem().setdefault(self.file_hash, {})
+        new = {k: copy.deepcopy(v) for k, v in fields.items() if e.get(k) != v}
+        if not new and e.get("name") == self.file_name:
+            return
+        e.update(new)
+        e["name"] = self.file_name
+        e["saved"] = time.strftime("%d.%m.%Y %H:%M")
+        e["ts"] = time.time()
+        self._mem_save()
+
+    def done_marks(self):
+        """{layer key: date} of the layers of the loaded file that were plotted to the end."""
+        if self.raw is None or self.is_test:
+            return {}
+        return (self._mem().get(self.file_hash) or {}).get("done") or {}
+
+    def clear_done(self):
+        e = self._mem().get(self.file_hash)
+        if e and e.get("done") and not self.is_test:
+            e["done"] = {}
+            self._mem_save()
+
+    def _mark_done(self, job, finished):
+        """Note the layers this job has drawn to the end (at every pen change and at the end)."""
+        if not self.doc or self.is_test or self.doc.get("hash") != self.file_hash:
+            return
+        idx = set(job.layer_secs)
+        if finished:
+            idx |= set(range(job.start_layer, len(job.layer_ids)))
+        keys = {l["id"]: l["key"] for l in self.doc["layers"]}
+        before = self.done_marks()
+        done = dict(before)
+        today = time.strftime("%d.%m.%Y")
+        for i in idx:
+            k = keys.get(job.layer_ids[i]) if i < len(job.layer_ids) else None
+            if k is not None and i not in getattr(job, "_marked", ()):
+                done[k] = today
+        job._marked = idx
+        if done != before:
+            self.remember(done=done)
 
     # ---------------------------------------------------------- settings
     def save_settings(self):
@@ -501,6 +605,10 @@ class App:
         if not force and time.time() - self._last_save < 2:
             return
         self._last_save = time.time()
+        try:
+            self._mark_done(job, finished)
+        except Exception:
+            traceback.print_exc()
         li, pi = job.resume_point()
         key = None
         try:
@@ -788,6 +896,7 @@ class Handler(BaseHTTPRequestHandler):
                                    "area": allowed_area(APP.settings["machine"], APP.machine),
                                    "mset": APP.settings["machine"],
                                    "vmax": speed_limits(APP.machine.fw),
+                                   "done": APP.done_marks(),
                                    "log": APP.machine.log_since(since)})
             if path == "/api/ports":
                 return self._json({"ports": list_ports()})
@@ -796,7 +905,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/defaults":
                 return self._json(DEFAULTS)
             if path == "/api/doc":
-                return self._json(APP.doc_json())
+                return self._json(APP.with_layer_memory(APP.doc_json()))
             return self._static(path)
         except Exception as e:
             traceback.print_exc()
@@ -860,6 +969,14 @@ class Handler(BaseHTTPRequestHandler):
                 M._log("warn", "Capped at firmware maximum: " + ", ".join(changed))
             APP.save_settings()
             return APP.settings
+        if path == "/api/memory":
+            if busy:
+                return {"ok": False}
+            if b.get("clear_done"):
+                APP.clear_done()
+            else:
+                APP.remember(**{k: b[k] for k in ("place", "order", "reverse") if k in b})
+            return {"ok": True, "done": APP.done_marks()}
         if path == "/api/process":
             return APP.process(b, b.get("hidden"), light=bool(b.get("light")))
         if path == "/api/hatch_test/load":
