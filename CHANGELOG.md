@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- New README screenshots: a four-colour CMYK portrait (56,000 lines) placed on A4.
 - Colour layers whose name already contains the colour code (e.g. “1 Yellow (#f5d000)” from Linedraw) don't show it twice.
 
 ## 1.3.1 – 2026-11-25
