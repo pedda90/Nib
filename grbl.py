@@ -540,6 +540,7 @@ class Job:
         self.on_progress = on_progress
         self.change_moves = change_moves    # f() -> lines: pen up + go to origin
         self._next_layer = None             # during a pen change: the layer that comes next
+        self.t_end = None                   # when the job finished or was aborted: the clock stops
         self.state = "running"
         self.message = ""
         self.layer_idx = start_layer
@@ -562,6 +563,16 @@ class Job:
         machine.on_reset = self._reset
         machine.on_error = self._error
         self.thread = threading.Thread(target=self._run, daemon=True)
+
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, value):
+        self._state = value
+        if value in ("done", "aborted") and self.t_end is None:
+            self.t_end = time.time()
 
     def start(self):
         self.thread.start()
@@ -716,12 +727,14 @@ class Job:
                 self.m.realtime(b"\x85")       # cancel a running jog
 
     def elapsed(self):
-        t = time.time() - self.t_start - self.t_paused
+        """Plot time without pauses and pen changes; it stops counting when the job ends."""
+        now = self.t_end or time.time()
+        t = now - self.t_start - self.t_paused
         if self._pause_t:
-            t -= time.time() - self._pause_t
+            t -= now - self._pause_t
         if self._wait_t:
-            t -= time.time() - self._wait_t
-        return t
+            t -= now - self._wait_t
+        return max(0.0, t)
 
     def elapsed_str(self):
         s = int(self.elapsed())

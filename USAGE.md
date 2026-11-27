@@ -148,7 +148,9 @@ colour starts with them.
 ## Plot
 
 1. Load an SVG (**Open SVG**, or drop the file on the preview). The layers (colors) appear on the right
-   under **Layers**; you can toggle and reorder them.
+   under **Layers**; you can toggle and reorder them. Next to each layer: the estimated plot time
+   (top), the metres of line and the number of paths (pen lifts). While plotting, the current
+   layer shows the time left and finished layers show “done”.
    **Sublayers:** with “Group layers by: Color” (or Automatic), each pen color lists the
    Illustrator layers it is made of. Each one can be unticked individually. Unticked sublayers
    disappear from the preview and are not plotted. If everything in a color is unticked, that color

@@ -1005,12 +1005,23 @@ function renderLayers() {
     }
     // while plotting, the boxes of the colours being plotted only show/hide them in the preview
     const inJob = jobActive() && job.layer_ids && job.layer_ids.includes(o.id);
+    // plot time of the layer: estimate; while plotting, what's left of it
+    let tm = `≈ ${fmtTime(secs)}`, tmTip = "estimated plot time";
+    if (inJob && jobT && jobT.perLeft) {
+      const ji = job.layer_ids.indexOf(o.id);
+      if (ji < job.layer) { tm = "done"; tmTip = "plotted"; }
+      else if (ji === job.layer && job.state !== "pen_change") { tm = `${fmtTime(jobT.perLeft[ji])} left`; tmTip = "time left for this layer"; }
+      else { tm = `≈ ${fmtTime(jobT.perLeft[ji])}`; }
+    }
+    const metres = fmtNum(l.draw_len * S.place.scale / 1000, 1);
     const shown = o.on && !(inJob && viewOff.has(o.id));
     row.innerHTML = `<input type="checkbox" ${shown ? "checked" : ""} ${jobActive() && !inJob ? "disabled" : ""}
       title="${inJob ? "Show/hide in the preview (doesn't change the plot)" : "Plot this colour"}">
       <span class="sw" style="background:${l.color}"></span>
       <span class="nm" title="${esc(l.name)}${doneMarks[l.key] ? ` – plotted on ${esc(doneMarks[l.key])}` : ""}">${doneMarks[l.key] ? '<span class="ok">✓</span>' : ""}${esc(l.name)}</span>
-      <span class="meta">${fmtNum(l.count)} paths<br>${fmtNum(l.draw_len * S.place.scale / 1000, 1)} m</span>
+      <span class="meta" title="${tm} – ${tmTip}
+${metres} m of line
+${fmtNum(l.count)} paths (pen lifts)"><b>${tm}</b><br>${metres} m · ${fmtNum(l.count)}</span>
       <span class="mv"><button title="Move up"><svg class="ic"><use href="#i-up"/></svg></button><button title="Move down"><svg class="ic"><use href="#i-down"/></svg></button></span>`;
     row.querySelector("input").onchange = (e) => {
       if (inJob) { if (e.target.checked) viewOff.delete(o.id); else viewOff.add(o.id); }

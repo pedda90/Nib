@@ -2,6 +2,8 @@
 
 Run with:  python -m pytest tests
 """
+import time
+
 import pytest
 
 import grbl
@@ -89,3 +91,15 @@ def test_summary_of_a_stopped_plot_counts_only_what_was_drawn(app):
     assert sm["state"] == "aborted"
     assert [p["color"] for p in sm["pens"]] == ["#ff0000"]
     assert sm["draw_m"] == pytest.approx(0.12)
+
+
+def test_the_clock_stops_when_the_plot_ends(app):
+    """After the last layer the elapsed time ('Done in …') must not keep counting."""
+    a, _ = app
+    first = a.doc["layers"][0]["id"]                    # one colour of several, like a single ticked pen
+    a.start_job({"layers": [first], "place": {"x": 10, "y": 10, "scale": 1.0, "rotate": 0}})
+    assert wait(lambda: a.job.state == "done", 30)
+    before = a.job_info()["elapsed"]
+    time.sleep(0.6)
+    assert a.job_info()["elapsed"] == before
+    assert a.job.summary is None or a.job.summary["plot_secs"] == pytest.approx(before, abs=0.1)
