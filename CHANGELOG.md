@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.3 – 2026-11-27
+Plot times per layer, and the clock stops when a plot ends.
+
+- Each layer shows its estimated plot time next to the line length and number of paths; while
+  plotting, the time left for the current layer.
+- The plot time stops when a plot ends: “Done in …” no longer keeps counting up afterwards.
+
 ## 1.3.2 – 2026-11-26
 Nib now remembers the settings of every file, so a half-finished drawing continues where it left off.
 

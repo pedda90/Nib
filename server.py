@@ -29,7 +29,7 @@ from notify import notify
 from grbl import Job, Machine, list_ports
 from svgload import load_svg
 
-VERSION = "1.3.2"   # shown in Nib.app's "Get Info"; bump for every release
+VERSION = "1.3.3"   # shown in Nib.app's "Get Info"; bump for every release
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, "frozen", False):
@@ -761,7 +761,7 @@ class App:
             "pens": rows, "draw_m": round(sum(r["draw_m"] for r in rows), 3),
             "paths": sum(r["paths"] for r in rows),
             "plot_secs": round(job.elapsed(), 1),                     # without pen changes and pauses
-            "wall_secs": round(time.time() - job.t_start, 1),         # from start to end, everything
+            "wall_secs": round((job.t_end or time.time()) - job.t_start, 1),   # from start to end, everything
             "estimate": getattr(job, "estimate", None),
             "errors": job.errors, "lost_acks": self.machine.lost_acks_total - getattr(job, "lost0", 0),
             "ended": time.strftime("%H:%M"),
